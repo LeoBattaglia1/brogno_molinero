@@ -1,0 +1,18 @@
+﻿# Dependencias
+node_modules/
+back/node_modules/
+front/node_modules/
+
+# Variables de entorno y secretos
+.env
+.env.*
+!.env.example
+back/.env
+front/.env
+
+# Builds y temporales
+dist/
+front/dist/
+build/
+*.log
+.DS_Store

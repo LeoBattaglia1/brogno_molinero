@@ -1,0 +1,148 @@
+.app-shell {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background-color: #162620;
+  background-image:
+    linear-gradient(
+      90deg,
+      rgba(10, 18, 14, 0.45) 0%,
+      rgba(10, 18, 14, 0.18) 50%,
+      rgba(10, 18, 14, 0.25) 100%
+    ),
+    url("/fondo-molino.png");
+  background-size: cover;
+  background-position: right center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+.sidebar {
+  width: 245px;
+  flex-shrink: 0;
+  background: rgba(14, 24, 19, 0.42);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-right: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  z-index: 2;
+}
+
+.reloj-card {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  text-align: left;
+}
+
+.reloj-hora {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+.reloj-fecha {
+  margin-top: 4px;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.85);
+  text-transform: capitalize;
+}
+
+.nav-btn {
+  text-align: left;
+  padding: 10px 14px;
+  border-radius: 9px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.93rem;
+  font-weight: 500;
+  background-color: transparent;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  transition:
+    background-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.nav-btn:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+.nav-btn.activa {
+  font-weight: 700;
+  background-color: #2e6f40;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
+}
+
+.sidebar-footer-action {
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.guardar-btn {
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  cursor: pointer;
+  font-size: 0.93rem;
+  font-weight: 700;
+  background-color: #1f4e2c;
+  color: #ffffff;
+  transition:
+    background-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.guardar-btn:hover {
+  background-color: #2e6f40;
+}
+
+.guardar-btn:active {
+  transform: scale(0.99);
+}
+
+.main-content {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-height: 100vh;
+  padding: 26px 32px 110px;
+  z-index: 1;
+}
+
+.alerta-placeholder {
+  background: rgba(16, 26, 21, 0.52);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px dashed rgba(255, 255, 255, 0.28);
+  border-radius: 14px;
+  padding: 18px 20px;
+  min-height: 110px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.logo-marca {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  width: 80px;
+  height: auto;
+  object-fit: contain;
+  border-radius: 8px;
+  background-color: #000000;
+  z-index: 3;
+  pointer-events: none;
+}
