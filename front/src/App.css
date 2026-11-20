@@ -114,15 +114,16 @@
 
 .main-content {
   position: relative;
-  flex: 1;
+
   width: 100%;
   min-height: 100vh;
-  padding: 26px 32px 110px;
+  padding: 16px 20px 40px;
+  box-sizing: border-box;
   z-index: 1;
 }
 
 .alerta-placeholder {
-  background: rgba(16, 26, 21, 0.52);
+  background: rgba(27, 83, 55, 0.52);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border: 1px dashed rgba(255, 255, 255, 0.28);

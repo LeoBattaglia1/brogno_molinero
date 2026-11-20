@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
 import "./App.css";
+import AgregarTrabajo from "./modules/AgregarTrabajo";
+import Clientes from "./modules/Clientes";
+import Presupuestos from "./modules/Presupuestos";
+import PagosCheques from "./modules/PagosCheques";
+import Caja from "./modules/Caja";
+import Empleados from "./modules/Empleados";
+import Turnos from "./modules/Turnos";
+import Estadisticas from "./modules/Estadisticas";
 
 const SECCIONES = [
   { id: "inicio", label: "Inicio" },
@@ -12,6 +20,17 @@ const SECCIONES = [
   { id: "turnos", label: "Turnos" },
   { id: "estadisticas", label: "Estadísticas" },
 ];
+
+const MODULOS = {
+  "agregar-trabajo": AgregarTrabajo,
+  clientes: Clientes,
+  presupuestos: Presupuestos,
+  "pagos-cheques": PagosCheques,
+  caja: Caja,
+  empleados: Empleados,
+  turnos: Turnos,
+  estadisticas: Estadisticas,
+};
 
 export default function App() {
   const [seccionActiva, setSeccionActiva] = useState("inicio");
@@ -37,6 +56,8 @@ export default function App() {
   const handleGuardarBD = () => {
     // Reservado para disparar el respaldo / guardado de la base de datos
   };
+
+  const ModuloActual = MODULOS[seccionActiva];
 
   return (
     <div className="app-shell">
@@ -120,20 +141,19 @@ export default function App() {
           </div>
         )}
 
-        {seccionActiva !== "inicio" && (
+        {seccionActiva !== "inicio" && ModuloActual && (
           <div
             style={{
-              maxWidth: "960px",
-              background: "rgba(16, 26, 21, 0.72)",
+              maxWidth: "1100px",
+              minHeight: "560px", // <-- Probá subiendo o bajando este valor (ej: "540px", "600px", "75vh")
+              background: "rgba(18, 16, 26, 0.72)",
               backdropFilter: "blur(8px)",
               padding: "22px",
               borderRadius: "14px",
               border: "1px solid rgba(255, 255, 255, 0.16)",
             }}
           >
-            <p style={{ margin: 0, opacity: 0.9 }}>
-              Contenido del módulo listo para desarrollar.
-            </p>
+            <ModuloActual />
           </div>
         )}
       </main>

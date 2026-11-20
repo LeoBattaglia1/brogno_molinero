@@ -1,12 +1,11 @@
-const { Router } = require("express");
-const controller = require("../controllers/cheques.controller");
+const express = require("express");
+const router = express.Router();
+const chequesController = require("../controllers/cheques.controller");
 
-const router = Router();
-
-router.get("/", controller.index);
-router.get("/:id", controller.show);
-router.post("/", controller.store);
-router.put("/:id", controller.update);
-router.delete("/:id", controller.destroy);
+router.get("/", chequesController.index);
+router.get("/:id", chequesController.show);
+router.post("/", chequesController.store);
+router.put("/:id", chequesController.update);
+router.delete("/:id", chequesController.destroy);
 
 module.exports = router;

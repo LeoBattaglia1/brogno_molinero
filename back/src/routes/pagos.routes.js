@@ -1,12 +1,11 @@
-const { Router } = require("express");
-const controller = require("../controllers/pagos.controller");
+const express = require("express");
+const router = express.Router();
+const pagosController = require("../controllers/pagos.controller");
 
-const router = Router();
-
-router.get("/", controller.index);
-router.get("/:id", controller.show);
-router.post("/", controller.store);
-router.put("/:id", controller.update);
-router.delete("/:id", controller.destroy);
+router.get("/", pagosController.index);
+router.get("/:id", pagosController.show);
+router.post("/", pagosController.store);
+router.put("/:id", pagosController.update);
+router.delete("/:id", pagosController.destroy);
 
 module.exports = router;

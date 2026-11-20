@@ -1,12 +1,11 @@
-const { Router } = require("express");
-const controller = require("../controllers/campos.controller");
+const express = require("express");
+const router = express.Router();
+const camposController = require("../controllers/campos.controller");
 
-const router = Router();
-
-router.get("/", controller.index);
-router.get("/:id", controller.show);
-router.post("/", controller.store);
-router.put("/:id", controller.update);
-router.delete("/:id", controller.destroy);
+router.get("/", camposController.index);
+router.get("/:id", camposController.show);
+router.post("/", camposController.store);
+router.put("/:id", camposController.update);
+router.delete("/:id", camposController.destroy);
 
 module.exports = router;

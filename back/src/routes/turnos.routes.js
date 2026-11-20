@@ -1,12 +1,11 @@
-const { Router } = require("express");
-const controller = require("../controllers/turnos.controller");
+const express = require("express");
+const router = express.Router();
+const turnosController = require("../controllers/turnos.controller");
 
-const router = Router();
-
-router.get("/", controller.index);
-router.get("/:id", controller.show);
-router.post("/", controller.store);
-router.put("/:id", controller.update);
-router.delete("/:id", controller.destroy);
+router.get("/", turnosController.index);
+router.get("/:id", turnosController.show);
+router.post("/", turnosController.store);
+router.put("/:id", turnosController.update);
+router.delete("/:id", turnosController.destroy);
 
 module.exports = router;

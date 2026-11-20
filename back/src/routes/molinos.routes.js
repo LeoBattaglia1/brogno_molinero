@@ -1,12 +1,11 @@
-const { Router } = require("express");
-const controller = require("../controllers/molinos.controller");
+const express = require("express");
+const router = express.Router();
+const molinosController = require("../controllers/molinos.controller");
 
-const router = Router();
-
-router.get("/", controller.index);
-router.get("/:id", controller.show);
-router.post("/", controller.store);
-router.put("/:id", controller.update);
-router.delete("/:id", controller.destroy);
+router.get("/", molinosController.index);
+router.get("/:id", molinosController.show);
+router.post("/", molinosController.store);
+router.put("/:id", molinosController.update);
+router.delete("/:id", molinosController.destroy);
 
 module.exports = router;
