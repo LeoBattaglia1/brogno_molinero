@@ -34,6 +34,24 @@ function formatearMoneda(valor) {
   });
 }
 
+function formatearMontoVistaPrevia(valor) {
+  if (valor === "" || valor === null || valor === undefined) return "$ 0";
+  const num = Number(valor);
+  if (Number.isNaN(num)) return "$ 0";
+  const parteEntera = Math.trunc(Math.abs(num))
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const signo = num < 0 ? "-" : "";
+  return `${signo}$ ${parteEntera}`;
+}
+
+function formatearFechaCorta(isoStr) {
+  if (!isoStr) return "—";
+  const [y, m, d] = String(isoStr).slice(0, 10).split("-");
+  if (!y || !m || !d) return String(isoStr);
+  return `${d}/${m}/${y}`;
+}
+
 function normalizarTiposPago(rawData) {
   const arr = Array.isArray(rawData)
     ? rawData
@@ -127,6 +145,13 @@ const styles = {
     fontSize: "0.95rem",
     fontWeight: "800",
     color: "#0f172a",
+  },
+  montoGrandePreview: {
+    fontSize: "1.45rem",
+    fontWeight: "900",
+    color: "#15803d",
+    letterSpacing: "-0.02em",
+    lineHeight: 1.1,
   },
   label: {
     display: "block",
@@ -310,6 +335,8 @@ export default function AgregarTrabajo({ onTrabajoGuardado }) {
   const [camposSeleccionados, setCamposSeleccionados] = useState([]);
   const [molinosSeleccionados, setMolinosSeleccionados] = useState([]);
 
+  const hoyMin = useMemo(() => hoyISO(), []);
+
   // Datos del trabajo
   const [fecha, setFecha] = useState(() => hoyISO());
   const [descripcion, setDescripcion] = useState("");
@@ -320,6 +347,9 @@ export default function AgregarTrabajo({ onTrabajoGuardado }) {
   const [pagosLista, setPagosLista] = useState(() => [
     crearPagoVacio(buscarIdEfectivo(TIPOS_PAGO_RESPALDO), hoyISO()),
   ]);
+
+  // Confirmación antes de guardar
+  const [confirmacionGuardado, setConfirmacionGuardado] = useState(null);
 
   // Modal nuevo cliente
   const [modalNuevoCliente, setModalNuevoCliente] = useState(false);
@@ -470,7 +500,7 @@ export default function AgregarTrabajo({ onTrabajoGuardado }) {
 
   const agregarLineaPago = () => {
     const idEfectivo = buscarIdEfectivo(tiposPago);
-    setPagosLista((prev) => [...prev, crearPagoVacio(idEfectivo, fecha)]);
+    setPagosLista((prev) => [...prev, crearPagoVacio(idEfectivo, hoyISO())]);
   };
 
   const quitarLineaPago = (uid) => {
@@ -486,9 +516,19 @@ export default function AgregarTrabajo({ onTrabajoGuardado }) {
   };
 
   const actualizarChequePago = (uid, cambiosCheque) => {
+    const cambiosAjustados = { ...cambiosCheque };
+    if (cambiosAjustados.fecha_cobro !== undefined) {
+      const fechaHoy = hoyISO();
+      const limpia = String(cambiosAjustados.fecha_cobro || "").slice(0, 10);
+      if (limpia && limpia < fechaHoy) {
+        cambiosAjustados.fecha_cobro = fechaHoy;
+      }
+    }
     setPagosLista((prev) =>
       prev.map((p) =>
-        p.uid === uid ? { ...p, cheque: { ...p.cheque, ...cambiosCheque } } : p,
+        p.uid === uid
+          ? { ...p, cheque: { ...p.cheque, ...cambiosAjustados } }
+          : p,
       ),
     );
   };
@@ -817,6 +857,7 @@ export default function AgregarTrabajo({ onTrabajoGuardado }) {
 
   // Validación previa completa antes de realizar cualquier POST
   const validarTodoAntesDeGuardar = () => {
+    const fechaHoy = hoyISO();
     if (!clienteId) {
       return "Seleccioná un cliente o creá uno nuevo.";
     }
@@ -853,6 +894,16 @@ export default function AgregarTrabajo({ onTrabajoGuardado }) {
           if (!p.cheque.numero_cheque.trim() || !p.cheque.banco.trim()) {
             return `Completá número de cheque y banco en el pago #${i + 1}.`;
           }
+          const fechaCobroLimpia = String(p.cheque.fecha_cobro || "").slice(
+            0,
+            10,
+          );
+          if (!fechaCobroLimpia) {
+            return `Indicá la fecha de cobro del cheque en el pago #${i + 1}.`;
+          }
+          if (fechaCobroLimpia < fechaHoy) {
+            return `La fecha de cobro del cheque en el pago #${i + 1} no puede ser anterior a hoy.`;
+          }
         }
       }
 
@@ -862,6 +913,75 @@ export default function AgregarTrabajo({ onTrabajoGuardado }) {
     }
 
     return "";
+  };
+
+  const ejecutarGuardadoConfirmado = async (payloadConfirmado) => {
+    const { montoTotalNum, itemsTrabajo, pagosACargar, totalPagosConfirmado } =
+      payloadConfirmado;
+
+    setGuardando(true);
+    try {
+      for (const payloadTrabajo of itemsTrabajo) {
+        await api.post("/trabajos", payloadTrabajo);
+      }
+
+      if (cargarPago) {
+        for (const p of pagosACargar) {
+          const montoLinea = Number(p.monto);
+          const tipoNum = Number(p.tipo_pago_id);
+
+          const resPago = await api.post("/pagos", {
+            cliente_id: Number(clienteId),
+            tipo_pago_id: tipoNum,
+            fecha,
+            monto: montoLinea,
+            observacion: p.observacion.trim() || descripcion.trim() || null,
+          });
+
+          const pagoIdCreado = resPago.data?.id;
+
+          if (esTipoCheque(p.tipo_pago_id)) {
+            await api.post("/cheques", {
+              pago_id: pagoIdCreado || null,
+              cliente_id: Number(clienteId),
+              numero_cheque: p.cheque.numero_cheque.trim(),
+              banco: p.cheque.banco.trim(),
+              monto: montoLinea,
+              fecha_cobro: p.cheque.fecha_cobro || hoyISO(),
+              fecha_vencimiento: p.cheque.fecha_cobro || hoyISO(),
+              estado: "pendiente",
+            });
+          }
+        }
+      }
+
+      const saldoPendiente = cargarPago
+        ? Number((montoTotalNum - totalPagosConfirmado).toFixed(2))
+        : montoTotalNum;
+
+      limpiarFormulario();
+
+      mostrarAviso(
+        "Trabajo guardado con éxito",
+        cargarPago
+          ? saldoPendiente > 0
+            ? `Pagado: ${formatearMoneda(totalPagosConfirmado)} · Pendiente: ${formatearMoneda(saldoPendiente)}.`
+            : "El trabajo y los pagos se registraron correctamente."
+          : `Trabajo registrado · Pendiente: ${formatearMoneda(saldoPendiente)}.`,
+      );
+
+      if (onTrabajoGuardado) {
+        onTrabajoGuardado();
+      }
+    } catch (err) {
+      console.error("Error guardando trabajo:", err);
+      const msg =
+        err.response?.data?.error || "Ocurrió un error al guardar el trabajo.";
+      setErrorForm(msg);
+      mostrarAviso("No se pudo guardar", msg, "error");
+    } finally {
+      setGuardando(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -905,69 +1025,56 @@ export default function AgregarTrabajo({ onTrabajoGuardado }) {
       });
     }
 
-    setGuardando(true);
-    try {
-      for (const payloadTrabajo of itemsTrabajo) {
-        await api.post("/trabajos", payloadTrabajo);
-      }
+    const clienteObj = clientes.find((c) => Number(c.id) === Number(clienteId));
+    const nombresCampos = camposSeleccionados.map(
+      (cId) =>
+        campos.find((c) => Number(c.id) === Number(cId))?.nombre ||
+        `Campo #${cId}`,
+    );
+    const nombresMolinos = molinosSeleccionados.map(
+      (mId) =>
+        molinos.find((m) => Number(m.id) === Number(mId))?.nombre ||
+        `Molino #${mId}`,
+    );
 
-      if (cargarPago) {
-        for (const p of pagosLista) {
-          const montoLinea = Number(p.monto);
-          const tipoNum = Number(p.tipo_pago_id);
+    const detallePagos = cargarPago
+      ? pagosLista.map((p) => {
+          const tipoObj = tiposPago.find(
+            (tp) => String(tp.id) === String(p.tipo_pago_id),
+          );
+          const esCheque = esTipoCheque(p.tipo_pago_id);
+          return {
+            tipoNombre: tipoObj?.nombre || `Tipo #${p.tipo_pago_id}`,
+            monto: Number(p.monto || 0),
+            observacion: p.observacion.trim(),
+            esCheque,
+            cheque: esCheque
+              ? {
+                  numero_cheque: p.cheque.numero_cheque.trim(),
+                  banco: p.cheque.banco.trim(),
+                  fecha_cobro: p.cheque.fecha_cobro || hoyISO(),
+                }
+              : null,
+          };
+        })
+      : [];
 
-          const resPago = await api.post("/pagos", {
-            cliente_id: Number(clienteId),
-            tipo_pago_id: tipoNum,
-            fecha,
-            monto: montoLinea,
-            observacion: p.observacion.trim() || descripcion.trim() || null,
-          });
-
-          const pagoIdCreado = resPago.data?.id;
-
-          if (esTipoCheque(p.tipo_pago_id)) {
-            await api.post("/cheques", {
-              pago_id: pagoIdCreado || null,
-              cliente_id: Number(clienteId),
-              numero_cheque: p.cheque.numero_cheque.trim(),
-              banco: p.cheque.banco.trim(),
-              monto: montoLinea,
-              fecha_cobro: p.cheque.fecha_cobro || fecha,
-              fecha_vencimiento: p.cheque.fecha_cobro || fecha,
-              estado: "pendiente",
-            });
-          }
-        }
-      }
-
-      const saldoPendiente = cargarPago
+    setConfirmacionGuardado({
+      clienteNombre: clienteObj?.nombre || `Cliente #${clienteId}`,
+      nombresCampos,
+      nombresMolinos,
+      fecha,
+      descripcion: descripcion.trim(),
+      montoTotalNum,
+      cargarPago,
+      detallePagos,
+      totalPagosConfirmado: sumaPagos,
+      saldoPendiente: cargarPago
         ? Number((montoTotalNum - sumaPagos).toFixed(2))
-        : montoTotalNum;
-
-      limpiarFormulario();
-
-      mostrarAviso(
-        "Trabajo guardado con éxito",
-        cargarPago
-          ? saldoPendiente > 0
-            ? `Pagado: ${formatearMoneda(sumaPagos)} · Pendiente: ${formatearMoneda(saldoPendiente)}.`
-            : "El trabajo y los pagos se registraron correctamente."
-          : `Trabajo registrado · Pendiente: ${formatearMoneda(saldoPendiente)}.`,
-      );
-
-      if (onTrabajoGuardado) {
-        onTrabajoGuardado();
-      }
-    } catch (err) {
-      console.error("Error guardando trabajo:", err);
-      const msg =
-        err.response?.data?.error || "Ocurrió un error al guardar el trabajo.";
-      setErrorForm(msg);
-      mostrarAviso("No se pudo guardar", msg, "error");
-    } finally {
-      setGuardando(false);
-    }
+        : montoTotalNum,
+      itemsTrabajo,
+      pagosACargar: cargarPago ? pagosLista : [],
+    });
   };
 
   return (
@@ -1117,8 +1224,19 @@ export default function AgregarTrabajo({ onTrabajoGuardado }) {
 
           {/* 4. Datos del trabajo */}
           <div style={styles.section}>
-            <div style={{ marginBottom: "10px" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "12px",
+                marginBottom: "10px",
+              }}
+            >
               <h3 style={styles.sectionTitle}>4. Datos del Trabajo</h3>
+              <span style={styles.montoGrandePreview}>
+                {formatearMontoVistaPrevia(montoTrabajo)}
+              </span>
             </div>
             <div
               style={{
@@ -1369,6 +1487,7 @@ export default function AgregarTrabajo({ onTrabajoGuardado }) {
                               <label style={styles.label}>Fecha de Cobro</label>
                               <input
                                 type="date"
+                                min={hoyMin}
                                 value={p.cheque.fecha_cobro}
                                 onChange={(e) =>
                                   actualizarChequePago(p.uid, {
@@ -1408,6 +1527,219 @@ export default function AgregarTrabajo({ onTrabajoGuardado }) {
           </div>
         </form>
       </div>
+
+      {/* Modal Confirmación antes de enviar POSTs */}
+      {confirmacionGuardado &&
+        createPortal(
+          <div style={styles.modalOverlay}>
+            <div style={styles.modalCard}>
+              <button
+                type="button"
+                onClick={() => setConfirmacionGuardado(null)}
+                style={styles.btnCloseX}
+              >
+                ✕
+              </button>
+
+              <h3
+                style={{
+                  margin: "0 0 6px",
+                  fontSize: "1.18rem",
+                  fontWeight: "800",
+                }}
+              >
+                ¿Estás seguro de guardar este trabajo?
+              </h3>
+              <p
+                style={{
+                  margin: "0 0 14px",
+                  fontSize: "0.86rem",
+                  color: "#475569",
+                }}
+              >
+                Revisá los datos que se van a registrar antes de confirmar:
+              </p>
+
+              <div
+                style={{
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "10px",
+                  padding: "12px 14px",
+                  backgroundColor: "#f8fafc",
+                  fontSize: "0.86rem",
+                  marginBottom: "14px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "6px",
+                }}
+              >
+                <div>
+                  <strong>Cliente:</strong> {confirmacionGuardado.clienteNombre}
+                </div>
+                <div>
+                  <strong>Campos:</strong>{" "}
+                  {confirmacionGuardado.nombresCampos.join(", ") || "—"}
+                </div>
+                <div>
+                  <strong>Molinos:</strong>{" "}
+                  {confirmacionGuardado.nombresMolinos.length > 0
+                    ? confirmacionGuardado.nombresMolinos.join(", ")
+                    : "Sin molinos seleccionados"}
+                </div>
+                <div>
+                  <strong>Fecha:</strong>{" "}
+                  {formatearFechaCorta(confirmacionGuardado.fecha)}
+                </div>
+                {confirmacionGuardado.descripcion && (
+                  <div>
+                    <strong>Descripción:</strong>{" "}
+                    {confirmacionGuardado.descripcion}
+                  </div>
+                )}
+                <div
+                  style={{
+                    borderTop: "1px solid #cbd5e1",
+                    paddingTop: "8px",
+                    marginTop: "4px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontWeight: "800",
+                    fontSize: "0.95rem",
+                  }}
+                >
+                  <span>Monto del trabajo:</span>
+                  <span style={{ color: "#15803d" }}>
+                    {formatearMoneda(confirmacionGuardado.montoTotalNum)}
+                  </span>
+                </div>
+              </div>
+
+              {confirmacionGuardado.cargarPago && (
+                <div
+                  style={{
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "10px",
+                    padding: "12px 14px",
+                    backgroundColor: "#f8fafc",
+                    fontSize: "0.85rem",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <div style={{ fontWeight: "800", marginBottom: "8px" }}>
+                    Pagos a registrar (
+                    {confirmacionGuardado.detallePagos.length})
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "8px",
+                    }}
+                  >
+                    {confirmacionGuardado.detallePagos.map((dp, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          backgroundColor: "#ffffff",
+                          border: "1px solid #cbd5e1",
+                          borderRadius: "8px",
+                          padding: "8px 10px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            fontWeight: "700",
+                          }}
+                        >
+                          <span>
+                            #{i + 1} · {dp.tipoNombre}
+                          </span>
+                          <span>{formatearMoneda(dp.monto)}</span>
+                        </div>
+                        {dp.observacion && (
+                          <div
+                            style={{ fontSize: "0.78rem", color: "#475569" }}
+                          >
+                            Obs.: {dp.observacion}
+                          </div>
+                        )}
+                        {dp.esCheque && dp.cheque && (
+                          <div
+                            style={{
+                              fontSize: "0.78rem",
+                              color: "#1e3a8a",
+                              fontWeight: "600",
+                              marginTop: "4px",
+                            }}
+                          >
+                            Cheque N° {dp.cheque.numero_cheque} ·{" "}
+                            {dp.cheque.banco} · Cobro:{" "}
+                            {formatearFechaCorta(dp.cheque.fecha_cobro)}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div
+                    style={{
+                      borderTop: "1px solid #cbd5e1",
+                      marginTop: "10px",
+                      paddingTop: "8px",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: "0.85rem",
+                      fontWeight: "700",
+                    }}
+                  >
+                    <span>
+                      Total pagado:{" "}
+                      {formatearMoneda(
+                        confirmacionGuardado.totalPagosConfirmado,
+                      )}
+                    </span>
+                    <span style={{ color: "#b91c1c" }}>
+                      Saldo pendiente:{" "}
+                      {formatearMoneda(confirmacionGuardado.saldoPendiente)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: "10px",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setConfirmacionGuardado(null)}
+                  style={styles.btnSecondary}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={guardando}
+                  onClick={async () => {
+                    const datos = confirmacionGuardado;
+                    setConfirmacionGuardado(null);
+                    await ejecutarGuardadoConfirmado(datos);
+                  }}
+                  style={styles.btnSuccess}
+                >
+                  Sí, guardar trabajo
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {/* Modal Nuevo Cliente */}
       {modalNuevoCliente &&

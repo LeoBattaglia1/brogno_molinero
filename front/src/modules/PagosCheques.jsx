@@ -373,6 +373,16 @@ const styles = {
     fontWeight: "700",
     boxShadow: "0 4px 12px rgba(46, 111, 64, 0.25)",
   },
+  btnSecondary: {
+    padding: "9px 15px",
+    backgroundColor: "#64748b",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "700",
+    fontSize: "0.86rem",
+  },
   btnDepositar: (ocupado) => ({
     padding: "5px 11px",
     borderRadius: "7px",
@@ -394,6 +404,46 @@ const styles = {
     fontSize: "0.85rem",
     fontWeight: "600",
     marginBottom: "10px",
+  },
+  modalOverlay: {
+    position: "fixed",
+    inset: 0,
+    width: "100vw",
+    height: "100vh",
+    padding: "20px",
+    backgroundColor: "rgba(10, 15, 28, 0.72)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 2500,
+    boxSizing: "border-box",
+  },
+  modalCard: {
+    backgroundColor: "#ffffff",
+    color: "#0f172a",
+    padding: "22px 26px",
+    borderRadius: "14px",
+    maxWidth: "520px",
+    width: "92vw",
+    maxHeight: "90vh",
+    overflowY: "auto",
+    boxShadow: "0 24px 48px -12px rgba(0, 0, 0, 0.4)",
+    position: "relative",
+    boxSizing: "border-box",
+  },
+  btnCloseX: {
+    position: "absolute",
+    top: "14px",
+    right: "16px",
+    background: "#f1f5f9",
+    border: "1px solid #cbd5e1",
+    borderRadius: "8px",
+    width: "32px",
+    height: "32px",
+    fontSize: "1rem",
+    fontWeight: "700",
+    color: "#334155",
+    cursor: "pointer",
   },
   ficheroContenedor: {
     background: "linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%)",
@@ -468,6 +518,8 @@ export default function PagosCheques({ onActualizado }) {
   const [cheques, setCheques] = useState([]);
   const [tiposPago, setTiposPago] = useState(TIPOS_PAGO_RESPALDO);
 
+  const hoyMin = useMemo(() => hoyISO(), []);
+
   const [clienteDeudorId, setClienteDeudorId] = useState("");
   const [fechaPago, setFechaPago] = useState(() => hoyISO());
   const [pagosLista, setPagosLista] = useState(() => [
@@ -475,6 +527,7 @@ export default function PagosCheques({ onActualizado }) {
   ]);
   const [errorPago, setErrorPago] = useState("");
   const [guardandoPago, setGuardandoPago] = useState(false);
+  const [confirmacionPago, setConfirmacionPago] = useState(null);
 
   const [filtroEstadoCheque, setFiltroEstadoCheque] = useState("pendiente");
   const [chequeSeleccionadoId, setChequeSeleccionadoId] = useState(null);
@@ -643,7 +696,7 @@ export default function PagosCheques({ onActualizado }) {
 
   const agregarLineaPago = () => {
     const idEfectivo = buscarIdEfectivo(tiposPago);
-    setPagosLista((prev) => [...prev, crearPagoVacio(idEfectivo, fechaPago)]);
+    setPagosLista((prev) => [...prev, crearPagoVacio(idEfectivo, hoyISO())]);
   };
 
   const quitarLineaPago = (uid) => {
@@ -659,14 +712,25 @@ export default function PagosCheques({ onActualizado }) {
   };
 
   const actualizarChequePago = (uid, cambiosCheque) => {
+    const cambiosAjustados = { ...cambiosCheque };
+    if (cambiosAjustados.fecha_cobro !== undefined) {
+      const fechaHoy = hoyISO();
+      const limpia = String(cambiosAjustados.fecha_cobro || "").slice(0, 10);
+      if (limpia && limpia < fechaHoy) {
+        cambiosAjustados.fecha_cobro = fechaHoy;
+      }
+    }
     setPagosLista((prev) =>
       prev.map((p) =>
-        p.uid === uid ? { ...p, cheque: { ...p.cheque, ...cambiosCheque } } : p,
+        p.uid === uid
+          ? { ...p, cheque: { ...p.cheque, ...cambiosAjustados } }
+          : p,
       ),
     );
   };
 
   const validarPago = () => {
+    const fechaHoy = hoyISO();
     if (!clienteDeudorSeleccionado) {
       return "Seleccioná un cliente de la lista con saldo pendiente.";
     }
@@ -691,6 +755,16 @@ export default function PagosCheques({ onActualizado }) {
         if (!p.cheque.numero_cheque.trim() || !p.cheque.banco.trim()) {
           return `Completá número de cheque y banco en el pago #${i + 1}.`;
         }
+        const fechaCobroLimpia = String(p.cheque.fecha_cobro || "").slice(
+          0,
+          10,
+        );
+        if (!fechaCobroLimpia) {
+          return `Indicá la fecha de cobro del cheque en el pago #${i + 1}.`;
+        }
+        if (fechaCobroLimpia < fechaHoy) {
+          return `La fecha de cobro del cheque en el pago #${i + 1} no puede ser anterior a hoy.`;
+        }
       }
     }
 
@@ -701,27 +775,25 @@ export default function PagosCheques({ onActualizado }) {
     return "";
   };
 
-  const handleRegistrarPago = async (e) => {
-    e.preventDefault();
-    setErrorPago("");
-
-    const msgError = validarPago();
-    if (msgError) {
-      setErrorPago(msgError);
-      mostrarAviso("Revisá el pago", msgError, "error");
-      return;
-    }
+  const ejecutarRegistroPagoConfirmado = async (datosConfirmados) => {
+    const {
+      clienteIdNum,
+      clienteNombre,
+      fechaPagoValor,
+      pagosACargar,
+      montoTotalRegistrado,
+    } = datosConfirmados;
 
     setGuardandoPago(true);
     try {
-      for (const p of pagosLista) {
+      for (const p of pagosACargar) {
         const montoLinea = Math.round(Number(p.monto));
         const tipoNum = Number(p.tipo_pago_id);
 
         const resPago = await api.post("/pagos", {
-          cliente_id: Number(clienteDeudorSeleccionado.id),
+          cliente_id: clienteIdNum,
           tipo_pago_id: tipoNum,
-          fecha: fechaPago,
+          fecha: fechaPagoValor,
           monto: montoLinea,
           observacion: p.observacion.trim() || null,
         });
@@ -731,27 +803,26 @@ export default function PagosCheques({ onActualizado }) {
         if (esTipoCheque(p.tipo_pago_id)) {
           await api.post("/cheques", {
             pago_id: pagoIdCreado || null,
-            cliente_id: Number(clienteDeudorSeleccionado.id),
+            cliente_id: clienteIdNum,
             numero_cheque: p.cheque.numero_cheque.trim(),
             banco: p.cheque.banco.trim(),
             monto: montoLinea,
-            fecha_cobro: p.cheque.fecha_cobro || fechaPago,
-            fecha_vencimiento: p.cheque.fecha_cobro || fechaPago,
+            fecha_cobro: p.cheque.fecha_cobro || hoyISO(),
+            fecha_vencimiento: p.cheque.fecha_cobro || hoyISO(),
             estado: "pendiente",
           });
         }
       }
 
-      const nombreCli = clienteDeudorSeleccionado.nombre;
-      const montoTotalRegistrado = sumaPagos;
-
-      setPagosLista([crearPagoVacio(buscarIdEfectivo(tiposPago), fechaPago)]);
+      setPagosLista([
+        crearPagoVacio(buscarIdEfectivo(tiposPago), fechaPagoValor),
+      ]);
       setClienteDeudorId("");
       await cargarDatos();
 
       mostrarAviso(
         "Pago registrado",
-        `Se registraron ${formatearMoneda(montoTotalRegistrado)} para ${nombreCli}.`,
+        `Se registraron ${formatearMoneda(montoTotalRegistrado)} para ${clienteNombre}.`,
       );
 
       if (onActualizado) {
@@ -765,6 +836,49 @@ export default function PagosCheques({ onActualizado }) {
     } finally {
       setGuardandoPago(false);
     }
+  };
+
+  const handleRegistrarPago = async (e) => {
+    e.preventDefault();
+    setErrorPago("");
+
+    const msgError = validarPago();
+    if (msgError) {
+      setErrorPago(msgError);
+      mostrarAviso("Revisá el pago", msgError, "error");
+      return;
+    }
+
+    const detallePagos = pagosLista.map((p) => {
+      const tipoObj = tiposPago.find(
+        (tp) => String(tp.id) === String(p.tipo_pago_id),
+      );
+      const esCheque = esTipoCheque(p.tipo_pago_id);
+      return {
+        tipoNombre: tipoObj?.nombre || `Tipo #${p.tipo_pago_id}`,
+        monto: Math.round(Number(p.monto || 0)),
+        observacion: p.observacion.trim(),
+        esCheque,
+        cheque: esCheque
+          ? {
+              numero_cheque: p.cheque.numero_cheque.trim(),
+              banco: p.cheque.banco.trim(),
+              fecha_cobro: p.cheque.fecha_cobro || hoyISO(),
+            }
+          : null,
+      };
+    });
+
+    setConfirmacionPago({
+      clienteIdNum: Number(clienteDeudorSeleccionado.id),
+      clienteNombre: clienteDeudorSeleccionado.nombre,
+      saldoAnterior: clienteDeudorSeleccionado.saldoPendiente,
+      saldoRestante: clienteDeudorSeleccionado.saldoPendiente - sumaPagos,
+      fechaPagoValor: fechaPago,
+      montoTotalRegistrado: sumaPagos,
+      detallePagos,
+      pagosACargar: pagosLista,
+    });
   };
 
   const handleDepositarCheque = async (e, chequeObj) => {
@@ -1199,6 +1313,7 @@ export default function PagosCheques({ onActualizado }) {
                                 </label>
                                 <input
                                   type="date"
+                                  min={hoyMin}
                                   value={p.cheque.fecha_cobro}
                                   onChange={(e) =>
                                     actualizarChequePago(p.uid, {
@@ -1451,6 +1566,163 @@ export default function PagosCheques({ onActualizado }) {
           </div>
         </div>
       </div>
+
+      {/* Modal Confirmación antes de enviar POSTs de pago */}
+      {confirmacionPago &&
+        createPortal(
+          <div style={styles.modalOverlay}>
+            <div style={styles.modalCard}>
+              <button
+                type="button"
+                onClick={() => setConfirmacionPago(null)}
+                style={styles.btnCloseX}
+              >
+                ✕
+              </button>
+
+              <h3
+                style={{
+                  margin: "0 0 6px",
+                  fontSize: "1.15rem",
+                  fontWeight: "800",
+                }}
+              >
+                ¿Estás seguro de registrar este pago?
+              </h3>
+              <p
+                style={{
+                  margin: "0 0 12px",
+                  fontSize: "0.85rem",
+                  color: "#475569",
+                }}
+              >
+                Verificá los datos antes de enviar el registro:
+              </p>
+
+              <div
+                style={{
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "10px",
+                  padding: "11px 13px",
+                  backgroundColor: "#f8fafc",
+                  fontSize: "0.85rem",
+                  marginBottom: "12px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "5px",
+                }}
+              >
+                <div>
+                  <strong>Cliente:</strong> {confirmacionPago.clienteNombre}
+                </div>
+                <div>
+                  <strong>Fecha de pago:</strong>{" "}
+                  {formatearFechaCorta(confirmacionPago.fechaPagoValor)}
+                </div>
+                <div>
+                  <strong>Saldo pendiente actual:</strong>{" "}
+                  {formatearMoneda(confirmacionPago.saldoAnterior)}
+                </div>
+                <div>
+                  <strong>Saldo restante estimado:</strong>{" "}
+                  <span style={{ color: "#15803d", fontWeight: "800" }}>
+                    {formatearMoneda(confirmacionPago.saldoRestante)}
+                  </span>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                  marginBottom: "14px",
+                }}
+              >
+                {confirmacionPago.detallePagos.map((dp, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      border: "1px solid #cbd5e1",
+                      borderRadius: "8px",
+                      padding: "9px 11px",
+                      backgroundColor: "#ffffff",
+                      fontSize: "0.84rem",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        fontWeight: "800",
+                      }}
+                    >
+                      <span>
+                        Pago #{i + 1} · {dp.tipoNombre}
+                      </span>
+                      <span>{formatearMoneda(dp.monto)}</span>
+                    </div>
+                    {dp.observacion && (
+                      <div style={{ fontSize: "0.78rem", color: "#475569" }}>
+                        Obs.: {dp.observacion}
+                      </div>
+                    )}
+                    {dp.esCheque && dp.cheque && (
+                      <div
+                        style={{
+                          fontSize: "0.78rem",
+                          color: "#1e3a8a",
+                          fontWeight: "600",
+                          marginTop: "4px",
+                        }}
+                      >
+                        Cheque N° {dp.cheque.numero_cheque} · {dp.cheque.banco}{" "}
+                        · Cobro: {formatearFechaCorta(dp.cheque.fecha_cobro)}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "10px",
+                }}
+              >
+                <span style={{ fontWeight: "800", fontSize: "0.9rem" }}>
+                  Total:{" "}
+                  {formatearMoneda(confirmacionPago.montoTotalRegistrado)}
+                </span>
+
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmacionPago(null)}
+                    style={styles.btnSecondary}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={guardandoPago}
+                    onClick={async () => {
+                      const datos = confirmacionPago;
+                      setConfirmacionPago(null);
+                      await ejecutarRegistroPagoConfirmado(datos);
+                    }}
+                    style={styles.btnSuccess}
+                  >
+                    Sí, registrar pago
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
