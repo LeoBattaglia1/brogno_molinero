@@ -128,6 +128,36 @@ function cargarLeaflet() {
   });
 }
 
+function buscarChequeDePago(pago, listaCheques) {
+  if (!pago || !Array.isArray(listaCheques) || listaCheques.length === 0) {
+    return null;
+  }
+
+  // 1. Coincidencia exacta por pago_id (la más confiable, sin depender del nombre del tipo de pago)
+  if (pago.id != null) {
+    const porPagoId = listaCheques.find(
+      (ch) => ch.pago_id != null && Number(ch.pago_id) === Number(pago.id),
+    );
+    if (porPagoId) return porPagoId;
+  }
+
+  // 2. Respaldo si el texto del tipo de pago menciona "cheque"
+  const esChequePorTexto = String(pago.tipo_pago_nombre || pago.tipo_pago || "")
+    .toLowerCase()
+    .includes("cheque");
+
+  if (!esChequePorTexto) return null;
+
+  const montoPago = Number(pago.monto || 0);
+  return (
+    listaCheques.find(
+      (ch) =>
+        Number(ch.cliente_id) === Number(pago.cliente_id) &&
+        Math.abs(Number(ch.monto || 0) - montoPago) < 0.01,
+    ) || null
+  );
+}
+
 const styles = {
   container: {
     padding: "4px 2px 4px 2px",
@@ -538,6 +568,7 @@ export default function Clientes() {
   const [molinos, setMolinos] = useState([]);
   const [trabajos, setTrabajos] = useState([]);
   const [pagos, setPagos] = useState([]);
+  const [cheques, setCheques] = useState([]);
   const [rutasCampos, setRutasCampos] = useState(() => leerRutasGuardadas());
 
   const [busqueda, setBusqueda] = useState("");
@@ -578,7 +609,7 @@ export default function Clientes() {
 
   // Modal Detalle del Cliente
   const [modalDetalleAbierto, setModalDetalleAbierto] = useState(false);
-  const [tipoFiltroTiempo, setTipoFiltroTiempo] = useState("todo"); // todo | dia | rango | mes | anio
+  const [tipoFiltroTiempo, setTipoFiltroTiempo] = useState("todo");
   const [fechaDia, setFechaDia] = useState(() =>
     normalizarFechaISO(new Date()),
   );
@@ -594,7 +625,7 @@ export default function Clientes() {
 
   // Modal Mapa: modo "seleccionar" o "ver"
   const [modalMapaAbierto, setModalMapaAbierto] = useState(false);
-  const [modoMapa, setModoMapa] = useState("seleccionar"); // seleccionar | ver
+  const [modoMapa, setModoMapa] = useState("seleccionar");
   const [rutaVisualizacion, setRutaVisualizacion] = useState(null);
   const [destinoMapa, setDestinoMapa] = useState(null);
   const [distanciaCalculadaMapa, setDistanciaCalculadaMapa] = useState(null);
@@ -621,13 +652,15 @@ export default function Clientes() {
 
   const cargarDatos = useCallback(async () => {
     try {
-      const [resCli, resCam, resMol, resTra, resPag] = await Promise.all([
-        api.get("/clientes"),
-        api.get("/campos"),
-        api.get("/molinos"),
-        api.get("/trabajos").catch(() => ({ data: [] })),
-        api.get("/pagos").catch(() => ({ data: [] })),
-      ]);
+      const [resCli, resCam, resMol, resTra, resPag, resCheq] =
+        await Promise.all([
+          api.get("/clientes"),
+          api.get("/campos"),
+          api.get("/molinos"),
+          api.get("/trabajos").catch(() => ({ data: [] })),
+          api.get("/pagos").catch(() => ({ data: [] })),
+          api.get("/cheques").catch(() => ({ data: [] })),
+        ]);
 
       const listaClientes = Array.isArray(resCli.data) ? resCli.data : [];
       setClientes(listaClientes);
@@ -635,6 +668,7 @@ export default function Clientes() {
       setMolinos(Array.isArray(resMol.data) ? resMol.data : []);
       setTrabajos(Array.isArray(resTra.data) ? resTra.data : []);
       setPagos(Array.isArray(resPag.data) ? resPag.data : []);
+      setCheques(Array.isArray(resCheq.data) ? resCheq.data : []);
       setRutasCampos(leerRutasGuardadas());
 
       setClienteSeleccionado((prev) => {
@@ -657,7 +691,6 @@ export default function Clientes() {
     cargarDatos();
   }, [cargarDatos]);
 
-  // Filtro de fechas para trabajos y pagos del modal de detalle
   const cumpleFiltroTiempo = useCallback(
     (fechaRaw) => {
       if (tipoFiltroTiempo === "todo") return true;
@@ -686,13 +719,14 @@ export default function Clientes() {
     [tipoFiltroTiempo, fechaDia, fechaDesde, fechaHasta, mesFiltro, anioFiltro],
   );
 
-  const abrirModalDetalle = () => {
+  const abrirModalDetalle = async () => {
     if (!clienteSeleccionado) return;
+    await cargarDatos();
     setTipoFiltroTiempo("todo");
     setModalDetalleAbierto(true);
   };
 
-  // Deuda total histórica del cliente (independiente del filtro seleccionado)
+  // Deuda total histórica del cliente (excluyendo cheques rechazados de los pagos sumados)
   const deudaTotalCliente = useMemo(() => {
     if (!clienteSeleccionado) return 0;
     const clienteIdNum = Number(clienteSeleccionado.id);
@@ -703,10 +737,17 @@ export default function Clientes() {
 
     const totalPagosHistorico = pagos
       .filter((p) => Number(p.cliente_id) === clienteIdNum)
-      .reduce((acc, p) => acc + Number(p.monto || 0), 0);
+      .reduce((acc, p) => {
+        const ch = buscarChequeDePago(p, cheques);
+        const estadoCh = ch
+          ? String(ch.estado || "pendiente").toLowerCase()
+          : null;
+        if (estadoCh === "rechazado") return acc;
+        return acc + Number(p.monto || 0);
+      }, 0);
 
     return Number((totalTrabajosHistorico - totalPagosHistorico).toFixed(2));
-  }, [clienteSeleccionado, trabajos, pagos]);
+  }, [clienteSeleccionado, trabajos, pagos, cheques]);
 
   // Datos filtrados para tablas de trabajos y pagos
   const datosDetalle = useMemo(() => {
@@ -778,30 +819,128 @@ export default function Clientes() {
     }));
 
     const pagosFiltrados = pagos
-      .filter(
-        (p) =>
-          Number(p.cliente_id) === clienteIdNum && cumpleFiltroTiempo(p.fecha),
-      )
+      .filter((p) => {
+        if (Number(p.cliente_id) !== clienteIdNum) return false;
+        const chequeAsociado = buscarChequeDePago(p, cheques);
+        const esCheque =
+          Boolean(chequeAsociado) ||
+          String(p.tipo_pago_nombre || p.tipo_pago || "")
+            .toLowerCase()
+            .includes("cheque");
+        const estadoCheque = esCheque
+          ? String(chequeAsociado?.estado || "pendiente").toLowerCase()
+          : null;
+
+        const fechaEfectiva = esCheque
+          ? estadoCheque === "cobrado" || estadoCheque === "rechazado"
+            ? chequeAsociado?.fecha_resolucion ||
+              chequeAsociado?.fecha_vencimiento ||
+              p.fecha
+            : chequeAsociado?.fecha_vencimiento || p.fecha
+          : p.fecha;
+
+        return cumpleFiltroTiempo(fechaEfectiva);
+      })
       .sort((a, b) => {
         const fa = normalizarFechaISO(a.fecha);
         const fb = normalizarFechaISO(b.fecha);
         if (fa !== fb) return fb.localeCompare(fa);
         return Number(b.id) - Number(a.id);
       })
-      .map((pg) => ({
-        ...pg,
-        tipoPagoTexto:
+      .map((pg) => {
+        const chequeAsociado = buscarChequeDePago(pg, cheques);
+        const esCheque =
+          Boolean(chequeAsociado) ||
+          String(pg.tipo_pago_nombre || pg.tipo_pago || "")
+            .toLowerCase()
+            .includes("cheque");
+
+        const tipoBase =
           pg.tipo_pago_nombre ||
           pg.tipo_pago ||
-          (pg.tipo_pago_id ? `Tipo #${pg.tipo_pago_id}` : "-"),
-        montoNum: Number(pg.monto || 0),
-      }));
+          (esCheque
+            ? "Cheque"
+            : pg.tipo_pago_id
+              ? `Tipo #${pg.tipo_pago_id}`
+              : "-");
+
+        const estadoCheque = esCheque
+          ? String(chequeAsociado?.estado || "pendiente").toLowerCase()
+          : null;
+
+        let fechaMostrar = pg.fecha;
+        let estiloFecha = {};
+        let estiloMonto = {
+          color: "#15803d",
+          fontWeight: "700",
+          backgroundColor: "transparent",
+        };
+        let sumaAlTotal = true;
+
+        if (esCheque) {
+          if (estadoCheque === "rechazado") {
+            fechaMostrar =
+              chequeAsociado?.fecha_resolucion ||
+              chequeAsociado?.fecha_vencimiento ||
+              pg.fecha;
+            estiloMonto = {
+              color: "#dc2626",
+              fontWeight: "800",
+              backgroundColor: "#fef2f2",
+            };
+            sumaAlTotal = false;
+          } else if (
+            estadoCheque === "pendiente" ||
+            estadoCheque === "depositado"
+          ) {
+            fechaMostrar = chequeAsociado?.fecha_vencimiento || pg.fecha;
+            estiloFecha = {
+              color: "#64748b",
+              fontStyle: "italic",
+            };
+            estiloMonto = {
+              color: "#94a3b8",
+              fontWeight: "700",
+              backgroundColor: "#f8fafc",
+            };
+            sumaAlTotal = true;
+          } else if (estadoCheque === "cobrado") {
+            fechaMostrar =
+              chequeAsociado?.fecha_resolucion ||
+              chequeAsociado?.fecha_vencimiento ||
+              pg.fecha;
+            estiloMonto = {
+              color: "#15803d",
+              fontWeight: "700",
+              backgroundColor: "transparent",
+            };
+            sumaAlTotal = true;
+          }
+        }
+
+        const tipoPagoTexto = esCheque
+          ? `${tipoBase} (${estadoCheque})`
+          : tipoBase;
+
+        return {
+          ...pg,
+          fechaMostrar,
+          estiloFecha,
+          tipoPagoTexto,
+          montoNum: Number(pg.monto || 0),
+          estiloMonto,
+          sumaAlTotal,
+        };
+      });
 
     const totalTrabajos = trabajosAgrupados.reduce(
       (acc, tr) => acc + tr.montoNum,
       0,
     );
-    const totalPagos = pagosFiltrados.reduce((acc, pg) => acc + pg.montoNum, 0);
+    const totalPagos = pagosFiltrados.reduce(
+      (acc, pg) => (pg.sumaAlTotal ? acc + pg.montoNum : acc),
+      0,
+    );
 
     return {
       trabajosAgrupados,
@@ -813,6 +952,7 @@ export default function Clientes() {
     clienteSeleccionado,
     trabajos,
     pagos,
+    cheques,
     campos,
     molinos,
     cumpleFiltroTiempo,
@@ -1920,7 +2060,7 @@ export default function Clientes() {
                 </p>
               </div>
 
-              {/* Filtros de tiempo arriba con el input a la derecha */}
+              {/* Filtros de tiempo */}
               <div
                 style={{
                   backgroundColor: "#f8fafc",
@@ -2188,8 +2328,10 @@ export default function Clientes() {
                       ) : (
                         datosDetalle.pagosFiltrados.map((pg) => (
                           <tr key={pg.id}>
-                            <td style={styles.detalleTd}>
-                              {formatearFechaAR(pg.fecha)}
+                            <td
+                              style={{ ...styles.detalleTd, ...pg.estiloFecha }}
+                            >
+                              {formatearFechaAR(pg.fechaMostrar)}
                             </td>
                             <td style={styles.detalleTd}>{pg.tipoPagoTexto}</td>
                             <td style={styles.detalleTd}>
@@ -2199,8 +2341,7 @@ export default function Clientes() {
                               style={{
                                 ...styles.detalleTd,
                                 textAlign: "right",
-                                fontWeight: "700",
-                                color: "#15803d",
+                                ...pg.estiloMonto,
                               }}
                             >
                               {formatearMoneda(pg.montoNum)}
