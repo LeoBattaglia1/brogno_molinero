@@ -688,8 +688,53 @@ export default function Clientes() {
   }, [mostrarAviso]);
 
   useEffect(() => {
-    cargarDatos();
-  }, [cargarDatos]);
+    let cancelado = false;
+
+    async function inicializar() {
+      try {
+        const [resCli, resCam, resMol, resTra, resPag, resCheq] =
+          await Promise.all([
+            api.get("/clientes"),
+            api.get("/campos"),
+            api.get("/molinos"),
+            api.get("/trabajos").catch(() => ({ data: [] })),
+            api.get("/pagos").catch(() => ({ data: [] })),
+            api.get("/cheques").catch(() => ({ data: [] })),
+          ]);
+        if (cancelado) return;
+
+        const listaClientes = Array.isArray(resCli.data) ? resCli.data : [];
+        setClientes(listaClientes);
+        setCampos(Array.isArray(resCam.data) ? resCam.data : []);
+        setMolinos(Array.isArray(resMol.data) ? resMol.data : []);
+        setTrabajos(Array.isArray(resTra.data) ? resTra.data : []);
+        setPagos(Array.isArray(resPag.data) ? resPag.data : []);
+        setCheques(Array.isArray(resCheq.data) ? resCheq.data : []);
+        setRutasCampos(leerRutasGuardadas());
+
+        setClienteSeleccionado((prev) => {
+          if (!prev) return null;
+          return (
+            listaClientes.find((c) => Number(c.id) === Number(prev.id)) || null
+          );
+        });
+      } catch (error) {
+        if (cancelado) return;
+        console.error("Error al cargar datos de clientes:", error);
+        mostrarAviso(
+          "Error de conexión",
+          "No se pudieron cargar los datos desde el servidor.",
+          "error",
+        );
+      }
+    }
+
+    inicializar();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [mostrarAviso]);
 
   const cumpleFiltroTiempo = useCallback(
     (fechaRaw) => {
@@ -963,11 +1008,6 @@ export default function Clientes() {
     if (!modalMapaAbierto) return;
 
     let activo = true;
-    setDestinoMapa(null);
-    setDistanciaCalculadaMapa(null);
-    setCoordenadasRutaCalculada([]);
-    setCalculandoRuta(false);
-    setEsRutaPorCamino(true);
 
     cargarLeaflet()
       .then((L) => {
@@ -1119,6 +1159,11 @@ export default function Clientes() {
   const abrirSelectorMapa = (callbackSeleccion) => {
     setModoMapa("seleccionar");
     setRutaVisualizacion(null);
+    setDestinoMapa(null);
+    setDistanciaCalculadaMapa(null);
+    setCoordenadasRutaCalculada([]);
+    setCalculandoRuta(false);
+    setEsRutaPorCamino(true);
     setOnSeleccionarMapa(() => callbackSeleccion);
     setModalMapaAbierto(true);
   };
@@ -1131,6 +1176,11 @@ export default function Clientes() {
       ...infoRuta,
       titulo: `${cmp.nombre} (${cmp.distancia ?? infoRuta.km} km)`,
     });
+    setDestinoMapa(null);
+    setDistanciaCalculadaMapa(null);
+    setCoordenadasRutaCalculada([]);
+    setCalculandoRuta(false);
+    setEsRutaPorCamino(true);
     setModalMapaAbierto(true);
   };
 

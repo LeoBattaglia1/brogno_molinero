@@ -427,8 +427,32 @@ export default function Turnos({ onActualizado }) {
   }, [mostrarToast]);
 
   useEffect(() => {
-    cargarDatos();
-  }, [cargarDatos]);
+    let cancelado = false;
+
+    async function inicializarTurnos() {
+      try {
+        const [resT, resC, resCp] = await Promise.all([
+          api.get("/turnos").catch(() => ({ data: [] })),
+          api.get("/clientes").catch(() => ({ data: [] })),
+          api.get("/campos").catch(() => ({ data: [] })),
+        ]);
+        if (cancelado) return;
+
+        setTurnos(Array.isArray(resT.data) ? resT.data : []);
+        setClientes(Array.isArray(resC.data) ? resC.data : []);
+        setCampos(Array.isArray(resCp.data) ? resCp.data : []);
+      } catch {
+        if (cancelado) return;
+        mostrarToast("Error al cargar los turnos.", "error");
+      }
+    }
+
+    inicializarTurnos();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [mostrarToast]);
 
   const construirFechaHora = (fecha, hora) =>
     hora ? `${fecha} ${hora}:00` : `${fecha} 00:00:00`;

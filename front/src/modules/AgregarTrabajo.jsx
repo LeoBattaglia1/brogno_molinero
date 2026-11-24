@@ -428,8 +428,57 @@ export default function AgregarTrabajo({ onTrabajoGuardado }) {
   }, [mostrarAviso]);
 
   useEffect(() => {
-    cargarDatosIniciales();
-  }, [cargarDatosIniciales]);
+    let cancelado = false;
+
+    async function inicializar() {
+      try {
+        const [resCli, resCam, resMol, resTipos] = await Promise.all([
+          api.get("/clientes"),
+          api.get("/campos"),
+          api.get("/molinos"),
+          api.get("/tipos_pago").catch(() => ({ data: [] })),
+        ]);
+        if (cancelado) return;
+
+        setClientes(Array.isArray(resCli.data) ? resCli.data : []);
+        setCampos(Array.isArray(resCam.data) ? resCam.data : []);
+        setMolinos(Array.isArray(resMol.data) ? resMol.data : []);
+
+        const listaNormalizada = normalizarTiposPago(resTipos.data);
+        setTiposPago(listaNormalizada);
+
+        const idEfectivo = buscarIdEfectivo(listaNormalizada);
+        setPagosLista((prev) =>
+          prev.map((p, idx) => {
+            const existeTipo = listaNormalizada.some(
+              (tp) => String(tp.id) === String(p.tipo_pago_id),
+            );
+            if (existeTipo) return p;
+            return {
+              ...p,
+              tipo_pago_id:
+                idx === 0 ? idEfectivo : String(listaNormalizada[0].id),
+            };
+          }),
+        );
+      } catch (err) {
+        if (cancelado) return;
+        console.error("Error cargando datos en AgregarTrabajo:", err);
+        setTiposPago(TIPOS_PAGO_RESPALDO);
+        mostrarAviso(
+          "Error de conexión",
+          "No se pudieron cargar los datos iniciales.",
+          "error",
+        );
+      }
+    }
+
+    inicializar();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [mostrarAviso]);
 
   const camposDisponibles = useMemo(() => {
     if (!clienteId) return [];

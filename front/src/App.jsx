@@ -5,7 +5,6 @@ import AgregarTrabajo from "./modules/AgregarTrabajo";
 import Clientes from "./modules/Clientes";
 import Presupuestos from "./modules/Presupuestos";
 import PagosCheques from "./modules/PagosCheques";
-
 import Empleados from "./modules/Empleados";
 import Turnos from "./modules/Turnos";
 import Estadisticas from "./modules/Estadisticas";
@@ -16,7 +15,6 @@ const SECCIONES = [
   { id: "clientes", label: "Clientes" },
   { id: "presupuestos", label: "Presupuestos" },
   { id: "pagos-cheques", label: "Pagos y Cheques" },
-
   { id: "empleados", label: "Empleados" },
   { id: "turnos", label: "Turnos" },
   { id: "estadisticas", label: "Estadísticas" },
@@ -27,7 +25,6 @@ const MODULOS = {
   clientes: Clientes,
   presupuestos: Presupuestos,
   "pagos-cheques": PagosCheques,
-
   empleados: Empleados,
   turnos: Turnos,
   estadisticas: Estadisticas,
@@ -60,6 +57,24 @@ function formatearFechaCorta(isoStr) {
   const m = String(dt.getMonth() + 1).padStart(2, "0");
   const y = dt.getFullYear();
   return `${d}/${m}/${y}`;
+}
+
+function formatearFechaHoraGuardado(isoOrDate) {
+  if (!isoOrDate) return "Aún no se realizó ningún guardado exitoso.";
+  const dt = new Date(isoOrDate);
+  if (Number.isNaN(dt.getTime())) return String(isoOrDate);
+  const fecha = dt.toLocaleDateString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  const hora = dt.toLocaleTimeString("es-AR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  return `Último guardado exitoso: ${fecha} a las ${hora}`;
 }
 
 function formatearMoneda(valor) {
@@ -140,9 +155,40 @@ export default function App() {
   const [procesandoChequeId, setProcesandoChequeId] = useState(null);
   const [confirmacionCheque, setConfirmacionCheque] = useState(null);
 
+  const [guardandoRespaldo, setGuardandoRespaldo] = useState(false);
+  const [ultimoGuardadoISO, setUltimoGuardadoISO] = useState(() => {
+    try {
+      return localStorage.getItem("ultimo_guardado_bd_iso") || null;
+    } catch {
+      return null;
+    }
+  });
+
   useEffect(() => {
     const timer = setInterval(() => setAhora(new Date()), 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let cancelado = false;
+    api
+      .get("/backup/ultimo")
+      .then((res) => {
+        if (cancelado) return;
+        const iso = res?.data?.ultimoRespaldo?.fechaExitoISO;
+        if (iso) {
+          setUltimoGuardadoISO(iso);
+          try {
+            localStorage.setItem("ultimo_guardado_bd_iso", iso);
+          } catch {
+            // Ignorar storage no disponible
+          }
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelado = true;
+    };
   }, []);
 
   const cargarDatosAlertas = useCallback(async () => {
@@ -161,10 +207,34 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (seccionActiva === "inicio") {
-      cargarDatosAlertas();
+    if (seccionActiva !== "inicio") return;
+
+    let cancelado = false;
+
+    async function cargar() {
+      try {
+        const [resCheq, resTurnos, resCli] = await Promise.all([
+          api.get("/cheques").catch(() => ({ data: [] })),
+          api.get("/turnos").catch(() => ({ data: [] })),
+          api.get("/clientes").catch(() => ({ data: [] })),
+        ]);
+        if (cancelado) return;
+        setCheques(Array.isArray(resCheq.data) ? resCheq.data : []);
+        setTurnos(Array.isArray(resTurnos.data) ? resTurnos.data : []);
+        setClientes(Array.isArray(resCli.data) ? resCli.data : []);
+      } catch (err) {
+        if (!cancelado) {
+          console.error("Error cargando alertas en Inicio:", err);
+        }
+      }
     }
-  }, [seccionActiva, cargarDatosAlertas]);
+
+    cargar();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [seccionActiva]);
 
   const alertasCheques = useMemo(() => {
     const mapaCli = new Map(clientes.map((c) => [Number(c.id), c.nombre]));
@@ -281,16 +351,53 @@ export default function App() {
     month: "long",
   });
 
-  const handleGuardarBD = () => {
-    // Reservado para disparar el respaldo / guardado de la base de datos
+  const handleGuardarBD = async () => {
+    setGuardandoRespaldo(true);
+    try {
+      const res = await api.post("/backup");
+      const data = res?.data || {};
+      if (data.success) {
+        const iso = data.fechaExitoISO || new Date().toISOString();
+        setUltimoGuardadoISO(iso);
+        try {
+          localStorage.setItem("ultimo_guardado_bd_iso", iso);
+        } catch {
+          // Ignorar storage no disponible
+        }
+      }
+    } catch {
+      // Error manejado silenciosamente en la UI del botón
+    } finally {
+      setGuardandoRespaldo(false);
+    }
   };
 
   const ModuloActual = MODULOS[seccionActiva];
   const primerTurno = turnosProximos[0] || null;
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div
+      className="app-shell"
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        minHeight: "100vh",
+      }}
+    >
+      <aside
+        className="sidebar"
+        style={{
+          height: "100vh",
+          position: "sticky",
+          top: 0,
+          overflowY: "auto",
+          flexShrink: 0,
+          boxSizing: "border-box",
+          display: "flex",
+          flexDirection: "column",
+          gap: "12px",
+        }}
+      >
         <div className="reloj-card">
           <div className="reloj-hora">{horaFormateada}</div>
           <div className="reloj-fecha">{fechaFormateada}</div>
@@ -309,20 +416,54 @@ export default function App() {
               </button>
             );
           })}
-        </nav>
 
-        <div className="sidebar-footer-action">
-          <button
-            type="button"
-            onClick={handleGuardarBD}
-            className="guardar-btn"
+          <hr
+            style={{
+              width: "100%",
+              border: "none",
+              borderTop: "1px solid rgba(148, 163, 184, 0.35)",
+              margin: "10px 0",
+            }}
+          />
+
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "6px",
+            }}
           >
-            Guardar
-          </button>
-        </div>
+            <button
+              type="button"
+              disabled={guardandoRespaldo}
+              onClick={handleGuardarBD}
+              className="guardar-btn"
+              style={{ opacity: guardandoRespaldo ? 0.65 : 1 }}
+            >
+              {guardandoRespaldo ? "Guardando..." : "Guardar"}
+            </button>
+
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.75rem",
+                lineHeight: 1.35,
+                color: "#cbd5e1",
+              }}
+            >
+              {formatearFechaHoraGuardado(ultimoGuardadoISO)}
+            </p>
+          </div>
+        </nav>
       </aside>
 
-      <main className="main-content">
+      <main
+        className="main-content"
+        style={{
+          flex: 1,
+          minWidth: 0,
+        }}
+      >
         {seccionActiva === "inicio" && (
           <div
             style={{

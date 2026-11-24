@@ -588,8 +588,59 @@ export default function PagosCheques({ onActualizado }) {
   }, [mostrarAviso]);
 
   useEffect(() => {
-    cargarDatos();
-  }, [cargarDatos]);
+    let cancelado = false;
+
+    async function inicializar() {
+      try {
+        const [resCli, resTra, resPag, resCheq, resTipos] = await Promise.all([
+          api.get("/clientes").catch(() => null),
+          api.get("/trabajos").catch(() => null),
+          api.get("/pagos").catch(() => null),
+          api.get("/cheques").catch(() => null),
+          api.get("/tipos_pago").catch(() => null),
+        ]);
+        if (cancelado) return;
+
+        if (Array.isArray(resCli?.data)) setClientes(resCli.data);
+        if (Array.isArray(resTra?.data)) setTrabajos(resTra.data);
+        if (Array.isArray(resPag?.data)) setPagos(resPag.data);
+        if (Array.isArray(resCheq?.data)) setCheques(resCheq.data);
+
+        if (resTipos?.data) {
+          const listaTipos = normalizarTiposPago(resTipos.data);
+          setTiposPago(listaTipos);
+
+          const idEfectivo = buscarIdEfectivo(listaTipos);
+          setPagosLista((prev) =>
+            prev.map((p, idx) => {
+              const existe = listaTipos.some(
+                (tp) => String(tp.id) === String(p.tipo_pago_id),
+              );
+              if (existe) return p;
+              return {
+                ...p,
+                tipo_pago_id: idx === 0 ? idEfectivo : String(listaTipos[0].id),
+              };
+            }),
+          );
+        }
+      } catch (err) {
+        if (cancelado) return;
+        console.error("Error cargando PagosCheques:", err);
+        mostrarAviso(
+          "Error de conexión",
+          "No se pudieron cargar los datos de pagos y cheques.",
+          "error",
+        );
+      }
+    }
+
+    inicializar();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [mostrarAviso]);
 
   const clientesConPendiente = useMemo(() => {
     if (clientes.length === 0) return [];

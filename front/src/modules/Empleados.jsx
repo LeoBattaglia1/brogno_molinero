@@ -2,6 +2,27 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import api from "../api/api";
 
+const RUTAS_PAGOS_EMPLEADOS = ["/empleados_pagos", "/empleados-pagos"];
+
+async function consultarPagosConFallback() {
+  let ultimoError = null;
+  for (const ruta of RUTAS_PAGOS_EMPLEADOS) {
+    try {
+      const res = await api.get(ruta);
+      return { data: Array.isArray(res?.data) ? res.data : [], ruta };
+    } catch (err) {
+      ultimoError = err;
+      if (err?.response?.status !== 404) {
+        throw err;
+      }
+    }
+  }
+  if (ultimoError?.response?.status === 404) {
+    return { data: [], ruta: RUTAS_PAGOS_EMPLEADOS[0] };
+  }
+  throw ultimoError;
+}
+
 function hoyISO() {
   const d = new Date();
   const y = d.getFullYear();
@@ -64,6 +85,46 @@ const PALETA_AVATAR = [
 function estiloAvatar(idOrIndex = 0) {
   const idx = Math.abs(Number(idOrIndex) || 0) % PALETA_AVATAR.length;
   return PALETA_AVATAR[idx];
+}
+
+function IconoLapiz({ size = 14 }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.1"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+    </svg>
+  );
+}
+
+function IconoDetalle() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.1"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+    </svg>
+  );
 }
 
 const styles = {
@@ -166,13 +227,6 @@ const styles = {
     marginBottom: "14px",
     flexWrap: "wrap",
   },
-  statBox: {
-    padding: "10px 12px",
-    borderRadius: "9px",
-    backgroundColor: "#ffffff",
-    border: "1px solid #e2e8f0",
-    flex: "1 1 140px",
-  },
   section: {
     border: "1px solid #e2e8f0",
     borderRadius: "10px",
@@ -197,6 +251,16 @@ const styles = {
     boxSizing: "border-box",
     width: "100%",
   },
+  select: {
+    padding: "8px 10px",
+    borderRadius: "8px",
+    border: "1px solid #cbd5e1",
+    fontSize: "0.9rem",
+    backgroundColor: "#ffffff",
+    color: "#0f172a",
+    boxSizing: "border-box",
+    width: "100%",
+  },
   btnPrimary: {
     padding: "8px 13px",
     backgroundColor: "#2563eb",
@@ -206,6 +270,38 @@ const styles = {
     cursor: "pointer",
     fontWeight: "700",
     fontSize: "0.82rem",
+    whiteSpace: "nowrap",
+  },
+  btnEditarDiscreto: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "5px",
+    padding: "6px 10px",
+    borderRadius: "8px",
+    border: "1px solid #cbd5e1",
+    backgroundColor: "#f1f5f9",
+    color: "#334155",
+    cursor: "pointer",
+    fontWeight: "600",
+    fontSize: "0.8rem",
+    flexShrink: 0,
+    transition: "all 0.15s ease",
+  },
+  btnVerDetalle: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "7px",
+    padding: "8px 14px",
+    borderRadius: "9px",
+    border: "1px solid #99f6e4",
+    background: "linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%)",
+    color: "#0f766e",
+    cursor: "pointer",
+    fontWeight: "700",
+    fontSize: "0.86rem",
+    letterSpacing: "0.01em",
+    boxShadow: "0 2px 8px rgba(15, 118, 110, 0.14)",
+    transition: "all 0.18s ease",
     whiteSpace: "nowrap",
   },
   btnSuccess: {
@@ -231,17 +327,6 @@ const styles = {
     fontSize: "0.85rem",
     whiteSpace: "nowrap",
   },
-  btnSoftToggle: (activo) => ({
-    padding: "6px 10px",
-    backgroundColor: activo ? "#fef2f2" : "#f0fdf4",
-    color: activo ? "#991b1b" : "#166534",
-    border: `1px solid ${activo ? "#fca5a5" : "#86efac"}`,
-    borderRadius: "7px",
-    cursor: "pointer",
-    fontWeight: "700",
-    fontSize: "0.76rem",
-    whiteSpace: "nowrap",
-  }),
   alertaError: {
     backgroundColor: "#fef2f2",
     border: "1px solid #fca5a5",
@@ -270,7 +355,7 @@ const styles = {
     color: "#0f172a",
     padding: "22px 26px",
     borderRadius: "14px",
-    maxWidth: "480px",
+    maxWidth: "500px",
     width: "92vw",
     maxHeight: "90vh",
     overflowY: "auto",
@@ -336,7 +421,7 @@ export default function Empleados({ onActualizado }) {
   const [empleados, setEmpleados] = useState([]);
   const [pagosEmpleados, setPagosEmpleados] = useState([]);
   const [empleadoSeleccionadoId, setEmpleadoSeleccionadoId] = useState(null);
-  const [soloActivos, setSoloActivos] = useState(false);
+  const [verEmpleadosActivos, setVerEmpleadosActivos] = useState(true);
 
   // Modal nuevo empleado
   const [modalNuevoEmpleado, setModalNuevoEmpleado] = useState(false);
@@ -345,8 +430,18 @@ export default function Empleados({ onActualizado }) {
   const [errorNuevoEmpleado, setErrorNuevoEmpleado] = useState("");
   const [creandoEmpleado, setCreandoEmpleado] = useState(false);
 
-  // Formulario / modal nuevo pago a empleado
-  const [mostrarFormPago, setMostrarFormPago] = useState(false);
+  // Modal editar empleado
+  const [empleadoEditando, setEmpleadoEditando] = useState(null);
+  const [editNombre, setEditNombre] = useState("");
+  const [editTelefono, setEditTelefono] = useState("");
+  const [editActivo, setEditActivo] = useState("1");
+  const [errorEditarEmpleado, setErrorEditarEmpleado] = useState("");
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+
+  // Modal ver detalle del empleado
+  const [modalDetalleEmpleado, setModalDetalleEmpleado] = useState(false);
+
+  // Formulario nuevo pago a empleado
   const [fechaPago, setFechaPago] = useState(() => hoyISO());
   const [montoPago, setMontoPago] = useState("");
   const [observacionPago, setObservacionPago] = useState("");
@@ -367,12 +462,12 @@ export default function Empleados({ onActualizado }) {
   const cargarDatos = useCallback(async () => {
     try {
       const [resEmp, resPag] = await Promise.all([
-        api.get("/empleados").catch(() => ({ data: [] })),
-        api.get("/empleados_pagos").catch(() => ({ data: [] })),
+        api.get("/empleados"),
+        consultarPagosConFallback(),
       ]);
 
-      const listaEmp = Array.isArray(resEmp.data) ? resEmp.data : [];
-      const listaPag = Array.isArray(resPag.data) ? resPag.data : [];
+      const listaEmp = Array.isArray(resEmp?.data) ? resEmp.data : [];
+      const listaPag = Array.isArray(resPag?.data) ? resPag.data : [];
 
       setEmpleados(listaEmp);
       setPagosEmpleados(listaPag);
@@ -387,8 +482,38 @@ export default function Empleados({ onActualizado }) {
   }, [mostrarAviso]);
 
   useEffect(() => {
-    cargarDatos();
-  }, [cargarDatos]);
+    let cancelado = false;
+
+    async function inicializar() {
+      try {
+        const [resEmp, resPag] = await Promise.all([
+          api.get("/empleados"),
+          consultarPagosConFallback(),
+        ]);
+        if (cancelado) return;
+
+        const listaEmp = Array.isArray(resEmp?.data) ? resEmp.data : [];
+        const listaPag = Array.isArray(resPag?.data) ? resPag.data : [];
+
+        setEmpleados(listaEmp);
+        setPagosEmpleados(listaPag);
+      } catch (err) {
+        if (cancelado) return;
+        console.error("Error cargando Empleados:", err);
+        mostrarAviso(
+          "Error de conexión",
+          "No se pudieron cargar los empleados y sus pagos.",
+          "error",
+        );
+      }
+    }
+
+    inicializar();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [mostrarAviso]);
 
   const pagosPorEmpleado = useMemo(() => {
     const mapa = new Map();
@@ -429,9 +554,9 @@ export default function Empleados({ onActualizado }) {
   }, [empleados, pagosPorEmpleado]);
 
   const empleadosVisibles = useMemo(() => {
-    if (!soloActivos) return empleadosEnriquecidos;
+    if (!verEmpleadosActivos) return empleadosEnriquecidos;
     return empleadosEnriquecidos.filter((e) => e.activoBool);
-  }, [empleadosEnriquecidos, soloActivos]);
+  }, [empleadosEnriquecidos, verEmpleadosActivos]);
 
   const empleadoSeleccionado = useMemo(
     () =>
@@ -443,14 +568,13 @@ export default function Empleados({ onActualizado }) {
 
   const handleSeleccionarEmpleado = (empId) => {
     setEmpleadoSeleccionadoId(Number(empId));
-    setMostrarFormPago(false);
     setErrorPago("");
     setFechaPago(hoyISO());
     setMontoPago("");
     setObservacionPago("");
   };
 
-  const buscarEmpleadoDuplicado = (nombre, telefono) => {
+  const buscarEmpleadoDuplicado = (nombre, telefono, excluirId = null) => {
     const nombreNorm = String(nombre || "")
       .trim()
       .toLowerCase()
@@ -458,6 +582,9 @@ export default function Empleados({ onActualizado }) {
     const telLimpio = String(telefono || "").replace(/\D/g, "");
 
     return empleados.find((emp) => {
+      if (excluirId != null && Number(emp.id) === Number(excluirId)) {
+        return false;
+      }
       const empNombreNorm = String(emp.nombre || "")
         .trim()
         .toLowerCase()
@@ -521,39 +648,71 @@ export default function Empleados({ onActualizado }) {
     }
   };
 
-  const handleAlternarEstadoEmpleado = async (empObj) => {
-    if (!empObj?.id) return;
-    const nuevoEstado = empObj.activoBool ? 0 : 1;
+  const abrirModalEditarEmpleado = (empObj) => {
+    setErrorEditarEmpleado("");
+    setEmpleadoEditando(empObj);
+    setEditNombre(empObj.nombre || "");
+    setEditTelefono(empObj.telefono || "");
+    setEditActivo(esActivo(empObj.activo) ? "1" : "0");
+  };
+
+  const handleGuardarEdicionEmpleado = async (e) => {
+    e.preventDefault();
+    if (!empleadoEditando?.id) return;
+    setErrorEditarEmpleado("");
+
+    const nombreTrim = editNombre.trim();
+    const telTrim = editTelefono.trim();
+    const estadoNum = Number(editActivo) === 1 ? 1 : 0;
+
+    if (!nombreTrim) {
+      setErrorEditarEmpleado("Ingresá el nombre del empleado.");
+      return;
+    }
+
+    const duplicado = buscarEmpleadoDuplicado(
+      nombreTrim,
+      telTrim,
+      empleadoEditando.id,
+    );
+    if (duplicado) {
+      const msg = `Ya existe otro empleado con ese dato (${duplicado.nombre}).`;
+      setErrorEditarEmpleado(msg);
+      mostrarAviso("Dato duplicado", msg, "error");
+      return;
+    }
+
+    setGuardandoEdicion(true);
     try {
       try {
-        await api.patch(`/empleados/${empObj.id}`, { activo: nuevoEstado });
+        await api.patch(`/empleados/${empleadoEditando.id}`, {
+          nombre: nombreTrim,
+          telefono: telTrim || null,
+          activo: estadoNum,
+        });
       } catch {
-        await api.put(`/empleados/${empObj.id}`, {
-          nombre: empObj.nombre,
-          telefono: empObj.telefono || null,
-          activo: nuevoEstado,
+        await api.put(`/empleados/${empleadoEditando.id}`, {
+          nombre: nombreTrim,
+          telefono: telTrim || null,
+          activo: estadoNum,
         });
       }
 
-      setEmpleados((prev) =>
-        prev.map((c) =>
-          Number(c.id) === Number(empObj.id)
-            ? { ...c, activo: nuevoEstado }
-            : c,
-        ),
-      );
+      await cargarDatos();
+      setEmpleadoEditando(null);
       mostrarAviso(
-        nuevoEstado === 1 ? "Empleado activado" : "Empleado inactivo",
-        `${empObj.nombre} ahora figura como ${nuevoEstado === 1 ? "activo" : "inactivo"}.`,
+        "Empleado actualizado",
+        `Se guardaron los cambios de ${nombreTrim}.`,
       );
       if (onActualizado) onActualizado();
     } catch (err) {
-      console.error("Error actualizando estado de empleado:", err);
-      mostrarAviso(
-        "Error",
-        "No se pudo cambiar el estado del empleado.",
-        "error",
-      );
+      console.error("Error editando empleado:", err);
+      const msg =
+        err.response?.data?.error || "No se pudieron guardar los cambios.";
+      setErrorEditarEmpleado(msg);
+      mostrarAviso("Error al editar", msg, "error");
+    } finally {
+      setGuardandoEdicion(false);
     }
   };
 
@@ -588,39 +747,52 @@ export default function Empleados({ onActualizado }) {
   const ejecutarPagoConfirmado = async (datosPago) => {
     setGuardandoPago(true);
     try {
-      await api.post("/empleados_pagos", {
-        empleado_id: datosPago.empleado_id,
-        fecha: datosPago.fecha,
-        monto: datosPago.monto,
-        observacion: datosPago.observacion || null,
-      });
+      let guardadoOk = false;
+      for (const ruta of RUTAS_PAGOS_EMPLEADOS) {
+        try {
+          await api.post(ruta, {
+            empleado_id: Number(datosPago.empleado_id),
+            fecha: String(datosPago.fecha).slice(0, 10),
+            monto: Number(datosPago.monto),
+            observacion: datosPago.observacion || null,
+          });
+          guardadoOk = true;
+          break;
+        } catch (err) {
+          if (err?.response?.status !== 404) {
+            throw err;
+          }
+        }
+      }
+      if (!guardadoOk) {
+        throw new Error(
+          "No se encontró la ruta de pagos de empleados en el servidor (404).",
+        );
+      }
 
       setMontoPago("");
       setObservacionPago("");
       setFechaPago(hoyISO());
-      setMostrarFormPago(false);
       await cargarDatos();
 
       mostrarAviso(
-        "Pago agendado y registrado",
+        "Pago registrado",
         `Se registraron ${formatearMoneda(datosPago.monto)} para ${datosPago.empleadoNombre}.`,
       );
 
       if (onActualizado) onActualizado();
     } catch (err) {
       console.error("Error registrando pago de empleado:", err);
-      const msg = err.response?.data?.error || "No se pudo registrar el pago.";
+      const msg =
+        err.response?.data?.error ||
+        err.message ||
+        "No se pudo registrar el pago.";
       setErrorPago(msg);
       mostrarAviso("Error al registrar pago", msg, "error");
     } finally {
       setGuardandoPago(false);
     }
   };
-
-  const totalActivos = useMemo(
-    () => empleadosEnriquecidos.filter((e) => e.activoBool).length,
-    [empleadosEnriquecidos],
-  );
 
   return (
     <div style={styles.container}>
@@ -651,53 +823,41 @@ export default function Empleados({ onActualizado }) {
           <div style={styles.panelHeader}>
             <div>
               <h2 style={styles.panelTitle}>
-                Equipo ({empleadosVisibles.length})
+                Empleados ({empleadosVisibles.length})
               </h2>
-              <div
+              <label
                 style={{
-                  fontSize: "0.76rem",
-                  color: "#64748b",
-                  marginTop: "2px",
-                }}
-              >
-                {totalActivos} activos de {empleadosEnriquecidos.length} en
-                total
-              </div>
-            </div>
-
-            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-              <button
-                type="button"
-                onClick={() => setSoloActivos((prev) => !prev)}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: "8px",
-                  border: soloActivos
-                    ? "1.5px solid #15803d"
-                    : "1px solid #cbd5e1",
-                  backgroundColor: soloActivos ? "#dcfce7" : "#f8fafc",
-                  color: soloActivos ? "#166534" : "#334155",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  marginTop: "6px",
+                  fontSize: "0.82rem",
                   fontWeight: "700",
-                  fontSize: "0.76rem",
+                  color: "#334155",
                   cursor: "pointer",
                 }}
               >
-                {soloActivos ? "Solo activos ✓" : "Todos"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setErrorNuevoEmpleado("");
-                  setNuevoNombre("");
-                  setNuevoTelefono("");
-                  setModalNuevoEmpleado(true);
-                }}
-                style={styles.btnPrimary}
-              >
-                + Nuevo empleado
-              </button>
+                <input
+                  type="checkbox"
+                  checked={verEmpleadosActivos}
+                  onChange={(e) => setVerEmpleadosActivos(e.target.checked)}
+                />
+                <span>ver empleados activos</span>
+              </label>
             </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setErrorNuevoEmpleado("");
+                setNuevoNombre("");
+                setNuevoTelefono("");
+                setModalNuevoEmpleado(true);
+              }}
+              style={styles.btnPrimary}
+            >
+              + Nuevo empleado
+            </button>
           </div>
 
           {empleadosVisibles.length === 0 ? (
@@ -783,27 +943,6 @@ export default function Empleados({ onActualizado }) {
                         </div>
                       </div>
                     </div>
-
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div
-                        style={{
-                          fontSize: "0.7rem",
-                          color: "#64748b",
-                          fontWeight: "700",
-                        }}
-                      >
-                        Pagado ({emp.pagos.length})
-                      </div>
-                      <div
-                        style={{
-                          fontWeight: "900",
-                          fontSize: "0.92rem",
-                          color: "#0f172a",
-                        }}
-                      >
-                        {formatearMoneda(emp.totalPagado)}
-                      </div>
-                    </div>
                   </button>
                 );
               })}
@@ -811,25 +950,37 @@ export default function Empleados({ onActualizado }) {
           )}
         </div>
 
-        {/* COLUMNA DERECHA: Detalle del empleado seleccionado + Pagos + Agendar pago */}
+        {/* COLUMNA DERECHA: Info del empleado + Ver detalle + Form nuevo pago */}
         <div style={styles.panel}>
           <div style={styles.panelHeader}>
             <h2 style={styles.panelTitle}>
               {empleadoSeleccionado
-                ? `Legajo de ${empleadoSeleccionado.nombre}`
+                ? empleadoSeleccionado.nombre
                 : "Detalle de Empleado"}
             </h2>
 
             {empleadoSeleccionado && (
               <button
                 type="button"
-                onClick={() => {
-                  setMostrarFormPago((prev) => !prev);
-                  setErrorPago("");
+                onClick={() => setModalDetalleEmpleado(true)}
+                style={styles.btnVerDetalle}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background =
+                    "linear-gradient(135deg, #ccfbf1 0%, #99f6e4 100%)";
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                  e.currentTarget.style.boxShadow =
+                    "0 4px 12px rgba(15, 118, 110, 0.22)";
                 }}
-                style={styles.btnSuccess}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background =
+                    "linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%)";
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow =
+                    "0 2px 8px rgba(15, 118, 110, 0.14)";
+                }}
               >
-                {mostrarFormPago ? "Cerrar formulario" : "+ Agendar nuevo pago"}
+                <IconoDetalle />
+                <span>Ver detalle</span>
               </button>
             )}
           </div>
@@ -846,14 +997,18 @@ export default function Empleados({ onActualizado }) {
                 fontSize: "0.9rem",
               }}
             >
-              Seleccioná un empleado de la lista para ver toda su información,
-              sus pagos realizados y agendar uno nuevo.
+              Seleccioná un empleado de la lista para ver sus datos, editarlo o
+              registrarle un pago.
             </div>
           ) : (
             <>
               <div style={styles.fichaHeader}>
                 <div
-                  style={{ display: "flex", alignItems: "center", gap: "12px" }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                  }}
                 >
                   <div
                     style={styles.avatarBadge(
@@ -917,250 +1072,91 @@ export default function Empleados({ onActualizado }) {
 
                 <button
                   type="button"
-                  onClick={() =>
-                    handleAlternarEstadoEmpleado(empleadoSeleccionado)
-                  }
-                  style={styles.btnSoftToggle(empleadoSeleccionado.activoBool)}
+                  onClick={() => abrirModalEditarEmpleado(empleadoSeleccionado)}
+                  style={styles.btnEditarDiscreto}
+                  title="Modificar datos o estado del empleado"
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = "#e2e8f0";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = "#f1f5f9";
+                  }}
                 >
-                  {empleadoSeleccionado.activoBool
-                    ? "Marcar inactivo"
-                    : "Marcar activo"}
+                  <IconoLapiz size={14} />
+                  <span>Editar</span>
                 </button>
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  gap: "10px",
-                  flexWrap: "wrap",
-                  marginBottom: "12px",
-                }}
-              >
-                <div style={styles.statBox}>
-                  <div
-                    style={{
-                      fontSize: "0.74rem",
-                      color: "#64748b",
-                      fontWeight: "700",
-                    }}
-                  >
-                    Pagos realizados
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "1.05rem",
-                      fontWeight: "900",
-                      color: "#0f172a",
-                      marginTop: "2px",
-                    }}
-                  >
-                    {empleadoSeleccionado.pagos.length}
-                  </div>
-                </div>
-                <div style={styles.statBox}>
-                  <div
-                    style={{
-                      fontSize: "0.74rem",
-                      color: "#64748b",
-                      fontWeight: "700",
-                    }}
-                  >
-                    Total abonado
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "1.05rem",
-                      fontWeight: "900",
-                      color: "#15803d",
-                      marginTop: "2px",
-                    }}
-                  >
-                    {formatearMoneda(empleadoSeleccionado.totalPagado)}
-                  </div>
-                </div>
-              </div>
-
-              {/* Formulario para agendar nuevo pago */}
-              {mostrarFormPago && (
-                <form onSubmit={handlePrepararPago} style={styles.section}>
-                  <div
-                    style={{
-                      fontWeight: "800",
-                      fontSize: "0.92rem",
-                      color: "#0f172a",
-                      marginBottom: "10px",
-                    }}
-                  >
-                    Agendar Nuevo Pago
-                  </div>
-
-                  {errorPago && (
-                    <div style={styles.alertaError}>{errorPago}</div>
-                  )}
-
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(150px, 1fr))",
-                      gap: "10px",
-                      marginBottom: "10px",
-                    }}
-                  >
-                    <div>
-                      <label style={styles.label}>Fecha *</label>
-                      <input
-                        type="date"
-                        value={fechaPago}
-                        onChange={(e) => setFechaPago(e.target.value)}
-                        style={styles.input}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={styles.label}>Monto *</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        inputMode="decimal"
-                        placeholder="0"
-                        value={montoPago}
-                        onChange={(e) => setMontoPago(e.target.value)}
-                        style={styles.input}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ marginBottom: "12px" }}>
-                    <label style={styles.label}>Observación (opcional)</label>
-                    <input
-                      type="text"
-                      placeholder="Ej: Adelanto, quincena, viáticos..."
-                      value={observacionPago}
-                      onChange={(e) => setObservacionPago(e.target.value)}
-                      style={styles.input}
-                    />
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "flex-end",
-                      gap: "8px",
-                    }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setMostrarFormPago(false)}
-                      style={styles.btnSecondary}
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={guardandoPago}
-                      style={{
-                        ...styles.btnSuccess,
-                        opacity: guardandoPago ? 0.65 : 1,
-                      }}
-                    >
-                      {guardandoPago ? "Guardando..." : "Confirmar pago"}
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* Historial de pagos realizados */}
-              <div style={styles.section}>
+              <form onSubmit={handlePrepararPago} style={styles.section}>
                 <div
                   style={{
                     fontWeight: "800",
-                    fontSize: "0.92rem",
+                    fontSize: "0.94rem",
                     color: "#0f172a",
                     marginBottom: "10px",
                   }}
                 >
-                  Pagos realizados ({empleadoSeleccionado.pagos.length})
+                  Registrar Nuevo Pago
                 </div>
 
-                {empleadoSeleccionado.pagos.length === 0 ? (
-                  <div
-                    style={{
-                      padding: "14px",
-                      textAlign: "center",
-                      backgroundColor: "#ffffff",
-                      borderRadius: "8px",
-                      border: "1px solid #e2e8f0",
-                      color: "#64748b",
-                      fontSize: "0.84rem",
-                    }}
-                  >
-                    Este empleado todavía no tiene pagos registrados.
-                  </div>
-                ) : (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "8px",
-                      maxHeight: "260px",
-                      overflowY: "auto",
-                    }}
-                  >
-                    {empleadoSeleccionado.pagos.map((pg) => (
-                      <div
-                        key={
-                          pg.id ?? `${pg.empleado_id}-${pg.fecha}-${pg.monto}`
-                        }
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          gap: "10px",
-                          padding: "9px 12px",
-                          borderRadius: "8px",
-                          backgroundColor: "#ffffff",
-                          border: "1px solid #cbd5e1",
-                        }}
-                      >
-                        <div>
-                          <div
-                            style={{
-                              fontWeight: "800",
-                              fontSize: "0.84rem",
-                              color: "#0f172a",
-                            }}
-                          >
-                            {formatearFechaCorta(pg.fecha)}
-                          </div>
-                          {pg.observacion && (
-                            <div
-                              style={{
-                                fontSize: "0.78rem",
-                                color: "#475569",
-                                marginTop: "2px",
-                              }}
-                            >
-                              {pg.observacion}
-                            </div>
-                          )}
-                        </div>
+                {errorPago && <div style={styles.alertaError}>{errorPago}</div>}
 
-                        <div
-                          style={{
-                            fontWeight: "900",
-                            fontSize: "0.92rem",
-                            color: "#15803d",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {formatearMoneda(pg.monto)}
-                        </div>
-                      </div>
-                    ))}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                    gap: "10px",
+                    marginBottom: "10px",
+                  }}
+                >
+                  <div>
+                    <label style={styles.label}>Fecha *</label>
+                    <input
+                      type="date"
+                      value={fechaPago}
+                      onChange={(e) => setFechaPago(e.target.value)}
+                      style={styles.input}
+                    />
                   </div>
-                )}
-              </div>
+
+                  <div>
+                    <label style={styles.label}>Monto *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={montoPago}
+                      onChange={(e) => setMontoPago(e.target.value)}
+                      style={styles.input}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={styles.label}>Observación (opcional)</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Adelanto, quincena, viáticos..."
+                    value={observacionPago}
+                    onChange={(e) => setObservacionPago(e.target.value)}
+                    style={styles.input}
+                  />
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    type="submit"
+                    disabled={guardandoPago}
+                    style={{
+                      ...styles.btnSuccess,
+                      opacity: guardandoPago ? 0.65 : 1,
+                    }}
+                  >
+                    {guardandoPago ? "Guardando..." : "Registrar pago"}
+                  </button>
+                </div>
+              </form>
             </>
           )}
         </div>
@@ -1252,6 +1248,293 @@ export default function Empleados({ onActualizado }) {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {/* Modal Editar Empleado */}
+      {empleadoEditando &&
+        createPortal(
+          <div style={styles.modalOverlay}>
+            <div style={styles.modalCard}>
+              <button
+                type="button"
+                onClick={() => setEmpleadoEditando(null)}
+                style={styles.btnCloseX}
+              >
+                ✕
+              </button>
+
+              <h3
+                style={{
+                  margin: "0 0 14px",
+                  fontSize: "1.15rem",
+                  fontWeight: "800",
+                }}
+              >
+                Editar Empleado
+              </h3>
+
+              {errorEditarEmpleado && (
+                <div style={styles.alertaError}>{errorEditarEmpleado}</div>
+              )}
+
+              <form onSubmit={handleGuardarEdicionEmpleado}>
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={styles.label}>Nombre completo *</label>
+                  <input
+                    type="text"
+                    value={editNombre}
+                    onChange={(e) => setEditNombre(e.target.value)}
+                    style={styles.input}
+                  />
+                </div>
+
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={styles.label}>Teléfono</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={editTelefono}
+                    onChange={(e) => setEditTelefono(e.target.value)}
+                    style={styles.input}
+                  />
+                </div>
+
+                <div style={{ marginBottom: "16px" }}>
+                  <label style={styles.label}>Estado</label>
+                  <select
+                    value={editActivo}
+                    onChange={(e) => setEditActivo(e.target.value)}
+                    style={styles.select}
+                  >
+                    <option value="1">Activo</option>
+                    <option value="0">Inactivo</option>
+                  </select>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    gap: "8px",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setEmpleadoEditando(null)}
+                    style={styles.btnSecondary}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={guardandoEdicion}
+                    style={{
+                      ...styles.btnPrimary,
+                      opacity: guardandoEdicion ? 0.65 : 1,
+                    }}
+                  >
+                    {guardandoEdicion ? "Guardando..." : "Guardar cambios"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {/* Modal Ver Detalle (Pagos realizados al empleado) */}
+      {modalDetalleEmpleado &&
+        empleadoSeleccionado &&
+        createPortal(
+          <div style={styles.modalOverlay}>
+            <div style={styles.modalCard}>
+              <button
+                type="button"
+                onClick={() => setModalDetalleEmpleado(false)}
+                style={styles.btnCloseX}
+              >
+                ✕
+              </button>
+
+              <h3
+                style={{
+                  margin: "0 0 4px",
+                  fontSize: "1.15rem",
+                  fontWeight: "800",
+                }}
+              >
+                Detalle de Pagos · {empleadoSeleccionado.nombre}
+              </h3>
+              <p
+                style={{
+                  margin: "0 0 14px",
+                  fontSize: "0.82rem",
+                  color: "#64748b",
+                }}
+              >
+                Tel: {empleadoSeleccionado.telefono || "Sin teléfono"} ·{" "}
+                {empleadoSeleccionado.activoBool ? "Activo" : "Inactivo"}
+              </p>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  marginBottom: "14px",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div
+                  style={{
+                    flex: "1 1 130px",
+                    padding: "10px 12px",
+                    borderRadius: "9px",
+                    backgroundColor: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "0.72rem",
+                      color: "#64748b",
+                      fontWeight: "700",
+                    }}
+                  >
+                    Pagos realizados
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "1.05rem",
+                      fontWeight: "900",
+                      color: "#0f172a",
+                      marginTop: "2px",
+                    }}
+                  >
+                    {empleadoSeleccionado.pagos.length}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    flex: "1 1 150px",
+                    padding: "10px 12px",
+                    borderRadius: "9px",
+                    backgroundColor: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "0.72rem",
+                      color: "#64748b",
+                      fontWeight: "700",
+                    }}
+                  >
+                    Total abonado
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "1.05rem",
+                      fontWeight: "900",
+                      color: "#15803d",
+                      marginTop: "2px",
+                    }}
+                  >
+                    {formatearMoneda(empleadoSeleccionado.totalPagado)}
+                  </div>
+                </div>
+              </div>
+
+              {empleadoSeleccionado.pagos.length === 0 ? (
+                <div
+                  style={{
+                    padding: "18px",
+                    textAlign: "center",
+                    backgroundColor: "#f8fafc",
+                    borderRadius: "9px",
+                    border: "1px solid #e2e8f0",
+                    color: "#64748b",
+                    fontSize: "0.86rem",
+                    marginBottom: "14px",
+                  }}
+                >
+                  No se han realizado pagos a este empleado.
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px",
+                    maxHeight: "280px",
+                    overflowY: "auto",
+                    marginBottom: "14px",
+                  }}
+                >
+                  {empleadoSeleccionado.pagos.map((pg) => (
+                    <div
+                      key={pg.id ?? `${pg.empleado_id}-${pg.fecha}-${pg.monto}`}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: "10px",
+                        padding: "10px 12px",
+                        borderRadius: "8px",
+                        backgroundColor: "#f8fafc",
+                        border: "1px solid #cbd5e1",
+                      }}
+                    >
+                      <div>
+                        <div
+                          style={{
+                            fontWeight: "800",
+                            fontSize: "0.85rem",
+                            color: "#0f172a",
+                          }}
+                        >
+                          {formatearFechaCorta(pg.fecha)}
+                        </div>
+                        {pg.observacion && (
+                          <div
+                            style={{
+                              fontSize: "0.78rem",
+                              color: "#475569",
+                              marginTop: "2px",
+                            }}
+                          >
+                            {pg.observacion}
+                          </div>
+                        )}
+                      </div>
+
+                      <div
+                        style={{
+                          fontWeight: "900",
+                          fontSize: "0.94rem",
+                          color: "#15803d",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {formatearMoneda(pg.monto)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={() => setModalDetalleEmpleado(false)}
+                  style={styles.btnSecondary}
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
           </div>,
           document.body,

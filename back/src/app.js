@@ -1,6 +1,12 @@
 const express = require("express");
 const cors = require("cors");
 
+const {
+  generarRespaldoSQL,
+  iniciarProgramadorDeRespaldos,
+  leerUltimoRespaldo,
+} = require("./backupService");
+
 const clientesRoutes = require("./routes/clientes.routes");
 const camposRoutes = require("./routes/campos.routes");
 const molinosRoutes = require("./routes/molinos.routes");
@@ -17,8 +23,23 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Inicia el programador automático de respaldos en pendrive
+iniciarProgramadorDeRespaldos();
+
 app.get("/api/health", (req, res) => {
   res.json({ ok: true, proyecto: "Brogno Molinero" });
+});
+
+app.get("/api/backup/ultimo", (req, res) => {
+  res.json({ ultimoRespaldo: leerUltimoRespaldo() });
+});
+
+app.post("/api/backup", async (req, res) => {
+  const resultado = await generarRespaldoSQL();
+  if (!resultado.success) {
+    return res.status(400).json(resultado);
+  }
+  return res.status(200).json(resultado);
 });
 
 app.use("/api/clientes", clientesRoutes);

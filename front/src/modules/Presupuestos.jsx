@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import api from "../api/api";
@@ -48,6 +48,101 @@ function crearItemVacio() {
     descripcion: "",
     total: "",
   };
+}
+
+function convertirNumeroHablado(bruto) {
+  let limpio = String(bruto || "")
+    .trim()
+    .replace(/\$/g, "")
+    .replace(/\s+/g, " ");
+
+  if (!limpio) return null;
+
+  // Soporte simple para expresiones con "mil" (ej: "180 mil", "45,5 mil", "12 mil 500")
+  const matchMil = limpio.match(
+    /^(\d+(?:[.,]\d+)?)\s*mil(?:\s+(\d+(?:[.,]\d+)?))?$/i,
+  );
+  if (matchMil) {
+    const base = Number(matchMil[1].replace(",", "."));
+    const extra = matchMil[2] ? Number(matchMil[2].replace(",", ".")) : 0;
+    if (!Number.isNaN(base) && !Number.isNaN(extra)) {
+      return Number((base * 1000 + extra).toFixed(2));
+    }
+  }
+
+  // Formato argentino/internacional: si tiene punto y coma, o puntos de miles
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(limpio)) {
+    limpio = limpio.replace(/\./g, "").replace(",", ".");
+  } else if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(limpio)) {
+    limpio = limpio.replace(/,/g, "");
+  } else {
+    limpio = limpio.replace(",", ".");
+  }
+
+  const num = Number(limpio);
+  return Number.isFinite(num) && num > 0 ? Number(num.toFixed(2)) : null;
+}
+
+function parsearDictadoPresupuesto(transcript) {
+  const texto = String(transcript || "").trim();
+  if (!texto) {
+    return { descripcion: "", precio: null };
+  }
+
+  const numToken =
+    "(?:\\$\\s*)?\\d{1,3}(?:[.,]\\d{3})*(?:[.,]\\d+)?(?:\\s*mil(?:\\s+\\d+(?:[.,]\\d+)?)?)?|\\d+(?:[.,]\\d+)?(?:\\s*mil(?:\\s+\\d+(?:[.,]\\d+)?)?)?";
+
+  // 1. Frases explícitas de precio/importe/monto/pesos al final o en el dictado
+  const patronesExplicitos = [
+    new RegExp(
+      `(?:\\b(?:precio|importe|monto|total|valor|sale|salen|cuesta|cuestan|cobro|cobrar|a|por)\\s+(?:de\\s+|unos?\\s+|aprox(?:imadamente)?\\s+)?)(${numToken})(?:\\s*(?:pesos?|ars|lucas|mangos))?\\s*$`,
+      "i",
+    ),
+    new RegExp(
+      `(?:\\b(?:precio|importe|monto|total|valor)\\s*:?\\s*)(${numToken})(?:\\s*(?:pesos?|ars|lucas|mangos))?`,
+      "i",
+    ),
+    new RegExp(`(${numToken})\\s*(?:pesos?|ars|lucas|mangos)\\s*$`, "i"),
+  ];
+
+  for (const patron of patronesExplicitos) {
+    const match = texto.match(patron);
+    if (match) {
+      const precio = convertirNumeroHablado(match[1]);
+      if (precio != null) {
+        const descripcionLimpia = texto
+          .replace(match[0], " ")
+          .replace(/\s*[-–—:,;]+\s*$/g, "")
+          .replace(/\s{2,}/g, " ")
+          .trim();
+        return {
+          descripcion: descripcionLimpia || texto,
+          precio,
+        };
+      }
+    }
+  }
+
+  // 2. Número suelto al final del dictado (ej: "cambio de cuero y zapata 25000")
+  const matchFinal = texto.match(new RegExp(`(?:^|\\s)(${numToken})\\s*$`));
+  if (matchFinal) {
+    const precio = convertirNumeroHablado(matchFinal[1]);
+    if (precio != null) {
+      const descripcionLimpia = texto
+        .slice(0, matchFinal.index)
+        .replace(/\s*[-–—:,;]+\s*$/g, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+      if (descripcionLimpia) {
+        return {
+          descripcion: descripcionLimpia,
+          precio,
+        };
+      }
+    }
+  }
+
+  return { descripcion: texto, precio: null };
 }
 
 // Dibuja el logo vectorial de Molinero Brogno directamente en el PDF
@@ -321,24 +416,31 @@ export default function Presupuestos() {
     return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
   }, []);
 
-  const cargarCatalogos = useCallback(async () => {
-    try {
-      const [resCli, resCam, resMol] = await Promise.all([
-        api.get("/clientes"),
-        api.get("/campos"),
-        api.get("/molinos"),
-      ]);
-      setClientes(Array.isArray(resCli.data) ? resCli.data : []);
-      setCampos(Array.isArray(resCam.data) ? resCam.data : []);
-      setMolinos(Array.isArray(resMol.data) ? resMol.data : []);
-    } catch (err) {
-      console.error("Error cargando catálogos en Presupuestos:", err);
-    }
-  }, []);
-
   useEffect(() => {
-    cargarCatalogos();
+    let cancelado = false;
+
+    async function inicializarCatalogos() {
+      try {
+        const [resCli, resCam, resMol] = await Promise.all([
+          api.get("/clientes"),
+          api.get("/campos"),
+          api.get("/molinos"),
+        ]);
+        if (cancelado) return;
+
+        setClientes(Array.isArray(resCli.data) ? resCli.data : []);
+        setCampos(Array.isArray(resCam.data) ? resCam.data : []);
+        setMolinos(Array.isArray(resMol.data) ? resMol.data : []);
+      } catch (err) {
+        if (cancelado) return;
+        console.error("Error cargando catálogos en Presupuestos:", err);
+      }
+    }
+
+    inicializarCatalogos();
+
     return () => {
+      cancelado = true;
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
@@ -347,7 +449,7 @@ export default function Presupuestos() {
         }
       }
     };
-  }, [cargarCatalogos]);
+  }, []);
 
   const clienteSeleccionado = useMemo(
     () => clientes.find((c) => Number(c.id) === Number(clienteId)) || null,
@@ -482,13 +584,21 @@ export default function Presupuestos() {
     rec.onresult = (event) => {
       const transcript = event.results?.[0]?.[0]?.transcript?.trim() || "";
       if (transcript) {
+        const { descripcion, precio } = parsearDictadoPresupuesto(transcript);
         setItems((prev) =>
           prev.map((it) => {
             if (it.uid !== uid) return it;
             const actual = it.descripcion.trim();
+            const nuevaDescripcion = descripcion
+              ? actual
+                ? `${actual} ${descripcion}`
+                : descripcion
+              : it.descripcion;
+
             return {
               ...it,
-              descripcion: actual ? `${actual} ${transcript}` : transcript,
+              descripcion: nuevaDescripcion,
+              total: precio != null ? String(precio) : it.total,
             };
           }),
         );
@@ -860,7 +970,7 @@ export default function Presupuestos() {
                       >
                         <input
                           type="text"
-                          placeholder="Escribí el trabajo o usá el micrófono..."
+                          placeholder="Dictá ej: 'cambio de bomba a 120 mil'..."
                           value={it.descripcion}
                           onChange={(e) =>
                             actualizarItem(it.uid, {
@@ -875,7 +985,9 @@ export default function Presupuestos() {
                             onClick={() => alternarDictadoVoz(it.uid)}
                             style={styles.btnMic(escuchando)}
                             title={
-                              escuchando ? "Detener dictado" : "Dictar por voz"
+                              escuchando
+                                ? "Detener dictado"
+                                : "Dictar descripción y precio por voz"
                             }
                           >
                             {escuchando ? "⏹ Escuchando..." : "🎤 Voz"}
